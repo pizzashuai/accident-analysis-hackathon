@@ -1,0 +1,4 @@
+# ByteTrack Configuration
+track_thresh: 0.5 # Detection confidence threshold for tracking
+track_buffer: 30 # Number of frames to keep lost tracks
+match_thresh: 0.8 # IoU threshold for matching detections to tracks

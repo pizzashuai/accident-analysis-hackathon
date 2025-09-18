@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "classes": [
+    2,
+    3,
+    5,
+    7
+  ],
+  "class_map": {
+    "2": "car",
+    "3": "motorcycle",
+    "5": "bus",
+    "7": "truck"
+  },
+  "bbox_format": "xyxy",
+  "output_format": "jsonl",
+  "output_fields": [
+    "frame",
+    "t",
+    "obj_id",
+    "bbox",
+    "cls",
+    "score"
+  ],
+  "model": "yolov8n.pt",
+  "conf": 0.3,
+  "iou_nms": 0.5,
+  "device": "auto"
+}

@@ -1,0 +1,17 @@
+[project]
+name = "accident-tracker"
+version = "0.1.0"
+description = "YOLOv8 + ByteTrack local sandbox"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "ultralytics>=8.2.0",
+  "supervision>=0.20.0",
+  "opencv-python>=4.10.0", # use opencv-python-headless if no GUI needed
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "torch>=2.3.0",
+  "torchvision>=0.18.0",
+  "motpy>=0.0.10",
+]
+
+[tool.uv]  # no special settings needed
