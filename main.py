@@ -15,6 +15,10 @@ import re
 import supervision as sv
 from ultralytics import YOLO
 
+from src.enhance_frame import VideoEnhancer
+from src.persist_detections import write_detections_to_jsonl
+from src.annotate_video import VideoAnnotator
+
 
 def get_next_test_folder_number(out_dir: Path) -> int:
     """
@@ -107,7 +111,7 @@ def process_video_with_supervision(
     test_folder: Path,
     model_path: str = "yolov8s.pt",
     conf_threshold: float = 0.2,
-    iou_threshold: float = 0.5,
+    iou_threshold: float = 0.3,
     classes: Optional[list] = None,
     trail_length: int = 10,
     # Tracking parameters
@@ -115,6 +119,9 @@ def process_video_with_supervision(
     track_activation_threshold: float = 0.1,
     lost_track_buffer: int = 100,
     minimum_matching_threshold: float = 0.95,
+    # Annotation parameters
+    annotate_video: bool = True,
+    output_video_name: str = "overlay_supervision.mp4",
 ):
     """
     Process video using supervision for detection, tracking, and annotation.
@@ -131,18 +138,21 @@ def process_video_with_supervision(
         track_activation_threshold: Threshold for track activation
         lost_track_buffer: Buffer for lost tracks
         minimum_matching_threshold: Minimum threshold for track matching
+        annotate_video: Whether to create annotated video output
+        output_video_name: Name of the output video file
     """
 
     # Default vehicle classes (COCO): car, motorcycle, bus, truck
     if classes is None:
-        classes = [2, 3, 5, 7]
+        classes = [2, 3, 5, 7, 9]
 
     # Create test folder
     test_folder.mkdir(parents=True, exist_ok=True)
 
     # Set up output paths
-    output_path = test_folder / "overlay_supervision.mp4"
+    output_path = test_folder / output_video_name
     info_path = test_folder / "video_info.json"
+    jsonl_path = test_folder / "detections.jsonl"
 
     print(f"Loading model: {model_path}")
     model = YOLO(model_path)
@@ -155,15 +165,6 @@ def process_video_with_supervision(
     height = video_info["height"]
     total_frames = video_info["total_frames"]
 
-    # Open video for processing
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Failed to open video: {video_path}")
-
-    # Setup video writer
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # type: ignore
-    out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-
     # Initialize supervision components
     byte_tracker = sv.ByteTrack(
         minimum_consecutive_frames=minimum_consecutive_frames,
@@ -172,25 +173,30 @@ def process_video_with_supervision(
         lost_track_buffer=lost_track_buffer,
         minimum_matching_threshold=minimum_matching_threshold,
     )
-    box_annotator = sv.BoxAnnotator()
-    label_annotator = sv.LabelAnnotator()
-
-    # Store tracking history for trails
-    tracking_history = {}
 
     frame_count = 0
     processed_frames = 0
 
-    print("Processing video frames...")
+    print("Processing video frames for detection and tracking...")
+
+    # Initialize enhancer once to keep consistent settings and reuse state
+    enhancer = VideoEnhancer()
+
+    # Open video for processing
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {video_path}")
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
+        enhanced_frame = enhancer.enhance(frame)
+
         # Run detection
         results = model(
-            frame,
+            enhanced_frame,
             conf=conf_threshold,
             classes=classes,
             verbose=False,
@@ -203,65 +209,11 @@ def process_video_with_supervision(
         # Update tracker
         detections = byte_tracker.update_with_detections(detections)
 
-        # Update tracking history for trails
-        if detections.tracker_id is not None:
-            for detection_idx in range(len(detections)):
-                tracker_id = detections.tracker_id[detection_idx]
-                if tracker_id is not None:
-                    if tracker_id not in tracking_history:
-                        tracking_history[tracker_id] = []
-
-                    # Get center point of bounding box
-                    x1, y1, x2, y2 = detections.xyxy[detection_idx]
-                    center_x = int((x1 + x2) / 2)
-                    center_y = int((y1 + y2) / 2)
-
-                    tracking_history[tracker_id].append((center_x, center_y))
-
-                    # Keep only the last trail_length points
-                    if len(tracking_history[tracker_id]) > trail_length:
-                        tracking_history[tracker_id] = tracking_history[tracker_id][
-                            -trail_length:
-                        ]
-
-        # Create labels with tracker IDs
-        labels = []
-        if detections.tracker_id is not None:
-            for detection_idx in range(len(detections)):
-                tracker_id = detections.tracker_id[detection_idx]
-                if tracker_id is not None:
-                    labels.append(f"ID:{tracker_id}")
-                else:
-                    labels.append("")
-        else:
-            labels = [""] * len(detections)
-
-        # Annotate frame
-        annotated_frame = frame.copy()
-
-        # Draw bounding boxes and labels
-        annotated_frame = box_annotator.annotate(
-            scene=annotated_frame, detections=detections
-        )
-        annotated_frame = label_annotator.annotate(
-            scene=annotated_frame, detections=detections, labels=labels
+        # Write detections to JSONL
+        write_detections_to_jsonl(
+            detections, model, frame_count, fps, video_path.name, jsonl_path
         )
 
-        # Draw trails manually using OpenCV
-        for tracker_id, trace_points in tracking_history.items():
-            if len(trace_points) > 1:
-                # Get color for this tracker ID
-                color = sv.ColorPalette.DEFAULT.by_idx(tracker_id % 20)
-                color_bgr = (int(color.b), int(color.g), int(color.r))
-
-                # Draw lines connecting the trail points
-                for i in range(1, len(trace_points)):
-                    pt1 = trace_points[i - 1]
-                    pt2 = trace_points[i]
-                    cv2.line(annotated_frame, pt1, pt2, color_bgr, 2)
-
-        # Write frame
-        out.write(annotated_frame)
         processed_frames += 1
 
         if frame_count % 10 == 0:
@@ -271,12 +223,25 @@ def process_video_with_supervision(
 
     # Cleanup
     cap.release()
-    out.release()
     cv2.destroyAllWindows()
 
-    print("Processing complete!")
-    print(f"Output video saved to: {output_path}")
+    print("Detection and tracking complete!")
+    print(f"Detections saved to: {jsonl_path}")
     print(f"Processed {processed_frames} frames")
+
+    # Create annotated video if requested
+    if annotate_video:
+        print("Creating annotated video...")
+        annotator = VideoAnnotator(trail_length=trail_length)
+        annotator.annotate_video_from_jsonl(
+            original_video_path=video_path,
+            jsonl_path=jsonl_path,
+            output_path=output_path,
+            show_trails=True,
+            show_labels=True,
+            show_boxes=True,
+        )
+        print(f"Annotated video saved to: {output_path}")
 
     # Save video info
     video_info = {
@@ -291,11 +256,25 @@ def process_video_with_supervision(
         "iou_threshold": iou_threshold,
         "classes": classes,
         "trail_length": trail_length,
+        "annotate_video": annotate_video,
+        "output_video_name": output_video_name,
+        "detections_file": str(jsonl_path),
         "tracking_params": {
             "minimum_consecutive_frames": minimum_consecutive_frames,
             "track_activation_threshold": track_activation_threshold,
             "lost_track_buffer": lost_track_buffer,
             "minimum_matching_threshold": minimum_matching_threshold,
+        },
+        "enhancement": {
+            "enable": enhancer.enable,
+            "clahe": enhancer.clahe,
+            "sharpen": enhancer.sharpen,
+            "gamma": enhancer.gamma,
+            "wb": enhancer.wb,
+            "temporal_window": enhancer.temporal_window,
+            "stabilize": enhancer.stabilize,
+            "ecc_iters": enhancer.ecc_iters,
+            "ecc_eps": enhancer.ecc_eps,
         },
     }
 
@@ -335,11 +314,23 @@ def main():
         "--classes",
         type=int,
         nargs="+",
-        default=[2, 3, 5, 7],
-        help="Class IDs to detect (default: 2,3,5,7 for vehicles)",
+        default=[2, 3, 5, 7, 9],
+        # default=[9],
+        help="Class IDs to detect (default: 2,3,5,7 for vehicles, 9 for traffic lights)",
     )
     parser.add_argument(
         "--trail", type=int, default=10, help="Trail length in frames (default: 10)"
+    )
+    parser.add_argument(
+        "--no-annotate",
+        action="store_true",
+        help="Skip video annotation, only save detections",
+    )
+    parser.add_argument(
+        "--output-name",
+        type=str,
+        default="overlay_supervision.mp4",
+        help="Name of the output video file (default: overlay_supervision.mp4)",
     )
     parser.add_argument(
         "--info-only", action="store_true", help="Only show video info, don't process"
@@ -381,6 +372,8 @@ def main():
             iou_threshold=args.iou,
             classes=args.classes,
             trail_length=args.trail,
+            annotate_video=not args.no_annotate,
+            output_video_name=args.output_name,
         )
 
     except Exception as e:
