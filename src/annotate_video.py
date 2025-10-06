@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Union
 import numpy as np
 
-from .persist_detections import (
+from persist_detections import (
     read_detections_from_jsonl,
     get_detections_by_frame,
     convert_jsonl_to_supervision_detections,
@@ -442,3 +442,16 @@ def annotate_video(
             )
 
     raise ValueError("Invalid detections source type")
+
+
+if __name__ == "__main__":
+    video_path = Path(
+        "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/happy1.mp4"
+    )
+    detections_path = Path(
+        "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/out/test_37/detections-redone.jsonl"
+    )
+    output_path = Path(
+        "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/out/test_37/detections-redone_annotated.mp4"
+    )
+    annotate_video(video_path, detections_path, output_path)
