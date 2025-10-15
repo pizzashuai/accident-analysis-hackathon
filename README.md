@@ -6,6 +6,8 @@ This project has been refactored to use [Roboflow Supervision](https://github.co
 
 - **Object Detection**: Uses YOLOv8 for vehicle detection (cars, motorcycles, buses, trucks)
 - **Multi-Object Tracking**: Uses ByteTrack algorithm from supervision for consistent ID tracking
+- **Bounding Box Smoothing**: Advanced smoothing algorithms to stabilize detections and improve speed estimates
+- **Speed Estimation**: Calculate vehicle speeds using homography transformation
 - **Visual Annotation**: Draws bounding boxes, labels, and tracking trails
 - **Video Processing**: Processes entire videos with overlayed tracking information
 
@@ -91,9 +93,55 @@ The following custom implementations were replaced with supervision:
 - **Extensible**: Easy to add new features using supervision's ecosystem
 - **Same Output**: Produces the same overlayed video format
 
+## Bounding Box Smoothing (NEW!)
+
+Vehicle bounding boxes can jitter between frames, causing speed estimate oscillations. This has been solved with **5 smoothing algorithms**:
+
+### 🏆 Recommended: Kalman Filter (Default)
+
+- **22% smoother** speed estimates
+- **49% more stable** bounding boxes
+- Automatically enabled when using speed calculation
+
+```bash
+# Default behavior - uses Kalman smoothing
+python main.py happy1.mp4 --homography homography-points.json
+```
+
+### Quick Start
+
+See **[BBOX_SMOOTHING_QUICK_START.md](BBOX_SMOOTHING_QUICK_START.md)** for:
+
+- Method comparison
+- When to use each method
+- Performance metrics
+- Usage examples
+
+### Full Analysis
+
+See **[BBOX_SMOOTHING_ANALYSIS.md](BBOX_SMOOTHING_ANALYSIS.md)** for:
+
+- Detailed methodology
+- Quantitative results
+- Implementation details
+- Parameter tuning guide
+
+### Test & Compare
+
+```bash
+# Compare all smoothing methods
+python src/bbox_smoothing/test_bbox_smoothing.py video.mp4 detections.jsonl output_dir homography.json
+
+# Generate comparison plots
+python src/bbox_smoothing/visualize_bbox_smoothing.py output_dir
+```
+
+**Results**: 5 annotated videos, debug data, and 4 comparison plots showing speed stability improvements.
+
 ## Dependencies
 
 - `ultralytics>=8.2.0`: YOLO model inference
 - `supervision>=0.20.0`: Detection, tracking, and annotation
 - `opencv-python>=4.10.0`: Video processing
 - `numpy>=1.26`: Numerical operations
+- `matplotlib>=3.8.0`: Visualization and plotting
