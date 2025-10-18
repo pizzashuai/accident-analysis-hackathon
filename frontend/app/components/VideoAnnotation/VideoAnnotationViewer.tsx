@@ -13,8 +13,15 @@ import {
   Stack,
   Switch,
   Text,
+  Loader,
 } from '@mantine/core';
-import { IconEraser, IconEye, IconEyeOff, IconUpload } from '@tabler/icons-react';
+import {
+  IconEraser,
+  IconEye,
+  IconEyeOff,
+  IconUpload,
+} from '@tabler/icons-react';
+import { useDetections } from '../../hooks/useProcessing';
 
 type BboxTuple = [number, number, number, number];
 
@@ -29,6 +36,8 @@ export interface DetectionRecord {
   conf?: number;
   bbox_xyxy: BboxTuple;
   center?: [number, number];
+  speed_mph?: number;
+  world_coords?: [number, number];
 }
 
 interface VideoAnnotationViewerProps {
@@ -38,6 +47,10 @@ interface VideoAnnotationViewerProps {
    * When omitted a local JSONL upload is required.
    */
   initialDetections?: DetectionRecord[];
+  /**
+   * Optional run ID for API-based detections
+   */
+  runId?: string;
 }
 
 interface TrackSummary {
@@ -79,7 +92,9 @@ const parseJsonlDetections = (payload: string): DetectionRecord[] => {
       bbox.length !== 4 ||
       bbox.some((point) => typeof point !== 'number')
     ) {
-      throw new Error(`Line ${index + 1}: bbox_xyxy must be an array of four numbers`);
+      throw new Error(
+        `Line ${index + 1}: bbox_xyxy must be an array of four numbers`
+      );
     }
 
     const frame = Number(obj.frame);
@@ -148,7 +163,9 @@ const buildDetectionTimeIndex = (detections: DetectionRecord[]) => {
   return index;
 };
 
-const extractTrackSummaries = (detections: DetectionRecord[]): TrackSummary[] => {
+const extractTrackSummaries = (
+  detections: DetectionRecord[]
+): TrackSummary[] => {
   const map = new Map<number, TrackSummary>();
 
   detections.forEach((det) => {
@@ -165,7 +182,8 @@ const extractTrackSummaries = (detections: DetectionRecord[]): TrackSummary[] =>
       }
       if (
         det.conf !== undefined &&
-        (existing.maxConfidence === undefined || det.conf > existing.maxConfidence)
+        (existing.maxConfidence === undefined ||
+          det.conf > existing.maxConfidence)
       ) {
         existing.maxConfidence = det.conf;
       }
@@ -199,12 +217,16 @@ const formatDetectionLabel = (det: DetectionRecord): string => {
   if (det.conf !== undefined && Number.isFinite(det.conf)) {
     parts.push(`${Math.round(det.conf * 100)}%`);
   }
+  if (det.speed_mph !== undefined && Number.isFinite(det.speed_mph)) {
+    parts.push(`${det.speed_mph.toFixed(1)} mph`);
+  }
   return parts.join(' · ');
 };
 
 export const VideoAnnotationViewer = ({
   videoUrl,
   initialDetections = [],
+  runId,
 }: VideoAnnotationViewerProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -212,33 +234,76 @@ export const VideoAnnotationViewer = ({
   const animationHandle = useRef<number | null>(null);
   const currentFrameDetectionsRef = useRef<DetectionRecord[]>([]);
 
-  const [detections, setDetections] = useState<DetectionRecord[]>(initialDetections);
+  const [detections, setDetections] =
+    useState<DetectionRecord[]>(initialDetections);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [enabledTrackIds, setEnabledTrackIds] = useState<number[]>([]);
   const [showUntracked, setShowUntracked] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [focusedTrackId, setFocusedTrackId] = useState<number | null>(null);
+  const [currentFrame, setCurrentFrame] = useState(0);
+
+  // API-based detections
+  const { data: apiDetections, isLoading: loadingDetections } = useDetections(
+    runId || '',
+    undefined,
+    0,
+    10000 // Get all detections
+  );
+
+  // Convert API detections to DetectionRecord format
+  const convertedApiDetections = useMemo(() => {
+    if (!apiDetections?.data) return [];
+
+    return apiDetections.data.map((detection) => ({
+      video_id: 'api',
+      frame: detection.frame_idx,
+      time: detection.t_ms / 1000.0,
+      track_id: detection.track_id,
+      class_id: detection.extra?.class_id,
+      class_name: detection.cls,
+      conf: detection.conf,
+      bbox_xyxy: [
+        detection.x,
+        detection.y,
+        detection.x + detection.w,
+        detection.y + detection.h,
+      ] as BboxTuple,
+      center: detection.extra?.center || [
+        detection.x + detection.w / 2,
+        detection.y + detection.h / 2,
+      ],
+      speed_mph: detection.extra?.speed_mph,
+      world_coords:
+        detection.wx && detection.wy ? [detection.wx, detection.wy] : undefined,
+    }));
+  }, [apiDetections]);
+
+  // Use API detections if runId is provided, otherwise use initialDetections or uploaded file
+  const effectiveDetections = runId ? convertedApiDetections : detections;
 
   const detectionIndex = useMemo(
-    () => buildDetectionTimeIndex(detections),
-    [detections],
+    () => buildDetectionTimeIndex(effectiveDetections),
+    [effectiveDetections]
   );
 
   const trackSummaries = useMemo(
-    () => extractTrackSummaries(detections),
-    [detections],
+    () => extractTrackSummaries(effectiveDetections),
+    [effectiveDetections]
   );
 
   useEffect(() => {
-    if (!initialDetections.length) {
+    if (!initialDetections.length && !runId) {
       return;
     }
-    setDetections(initialDetections);
+    setDetections(effectiveDetections);
     setEnabledTrackIds((ids) =>
-      ids.length ? ids : extractTrackSummaries(initialDetections).map((t) => t.trackId),
+      ids.length
+        ? ids
+        : extractTrackSummaries(effectiveDetections).map((t) => t.trackId)
     );
-  }, [initialDetections]);
+  }, [effectiveDetections, initialDetections.length, runId]);
 
   useEffect(() => {
     const trackIds = trackSummaries.map((track) => track.trackId);
@@ -253,11 +318,16 @@ export const VideoAnnotationViewer = ({
 
   const enabledTrackSet = useMemo(
     () => new Set(enabledTrackIds),
-    [enabledTrackIds],
+    [enabledTrackIds]
   );
 
   const handleFileChange = useCallback(
     (file: File | null) => {
+      if (runId) {
+        // Don't allow file upload when using API detections
+        return;
+      }
+
       setParseError(null);
       setSelectedFile(file);
 
@@ -270,10 +340,13 @@ export const VideoAnnotationViewer = ({
 
       reader.onload = () => {
         try {
-          const payload = typeof reader.result === 'string' ? reader.result : '';
+          const payload =
+            typeof reader.result === 'string' ? reader.result : '';
           const parsed = parseJsonlDetections(payload);
           setDetections(parsed);
-          setEnabledTrackIds(extractTrackSummaries(parsed).map((t) => t.trackId));
+          setEnabledTrackIds(
+            extractTrackSummaries(parsed).map((t) => t.trackId)
+          );
         } catch (error) {
           setParseError(error instanceof Error ? error.message : String(error));
           setDetections(initialDetections);
@@ -287,7 +360,7 @@ export const VideoAnnotationViewer = ({
 
       reader.readAsText(file);
     },
-    [initialDetections],
+    [initialDetections, runId]
   );
 
   const toggleTrack = useCallback((trackId: number) => {
@@ -473,12 +546,16 @@ export const VideoAnnotationViewer = ({
         );
       });
 
-      if (hitDetection && hitDetection.track_id !== null && hitDetection.track_id !== undefined) {
+      if (
+        hitDetection &&
+        hitDetection.track_id !== null &&
+        hitDetection.track_id !== undefined
+      ) {
         toggleTrack(hitDetection.track_id);
         setFocusedTrackId(hitDetection.track_id);
       }
     },
-    [toggleTrack],
+    [toggleTrack]
   );
 
   const activeTrackCount = enabledTrackIds.length;
@@ -490,23 +567,38 @@ export const VideoAnnotationViewer = ({
         <Stack gap={4}>
           <Text fw={600}>Video Annotation</Text>
           <Text size='sm' c='dimmed'>
-            Overlay detections from JSONL (as produced by backend/src/common/features/process-video) onto the project video. Toggle tracks to focus
-            on relevant vehicles without rendering a new video file.
+            {runId
+              ? 'Live detection overlay from processed video analysis. Toggle tracks to focus on relevant vehicles.'
+              : 'Overlay detections from JSONL (as produced by backend/src/common/features/process-video) onto the project video. Toggle tracks to focus on relevant vehicles without rendering a new video file.'}
           </Text>
         </Stack>
 
         <Group align='flex-end'>
-          <FileInput
-            label='Load detection JSONL'
-            placeholder='Upload detections.jsonl'
-            accept='.jsonl,.json,.txt'
-            value={selectedFile}
-            onChange={handleFileChange}
-            leftSection={<IconUpload size={16} />}
-            withAsterisk={!detections.length}
-            clearable
-          />
-          <Button variant='light' onClick={selectAllTracks} disabled={!totalTrackCount}>
+          {!runId && (
+            <FileInput
+              label='Load detection JSONL'
+              placeholder='Upload detections.jsonl'
+              accept='.jsonl,.json,.txt'
+              value={selectedFile}
+              onChange={handleFileChange}
+              leftSection={<IconUpload size={16} />}
+              withAsterisk={!detections.length}
+              clearable
+            />
+          )}
+          {runId && loadingDetections && (
+            <Group gap='xs'>
+              <Loader size='sm' />
+              <Text size='sm' c='dimmed'>
+                Loading detections...
+              </Text>
+            </Group>
+          )}
+          <Button
+            variant='light'
+            onClick={selectAllTracks}
+            disabled={!totalTrackCount}
+          >
             Select all
           </Button>
           <Button
@@ -536,8 +628,13 @@ export const VideoAnnotationViewer = ({
             Active tracks: {activeTrackCount}
           </Badge>
           <Badge color='gray' variant='light'>
-            Detections: {detections.length}
+            Detections: {effectiveDetections.length}
           </Badge>
+          {runId && (
+            <Badge color='purple' variant='light'>
+              API Data
+            </Badge>
+          )}
         </Group>
 
         <Group gap='lg' align='flex-start'>
@@ -581,13 +678,17 @@ export const VideoAnnotationViewer = ({
                   onLabel={<IconEye size={14} />}
                   offLabel={<IconEyeOff size={14} />}
                   checked={showLabels}
-                  onChange={(event) => setShowLabels(event.currentTarget.checked)}
+                  onChange={(event) =>
+                    setShowLabels(event.currentTarget.checked)
+                  }
                   label='Show labels'
                 />
                 <Switch
                   size='sm'
                   checked={showUntracked}
-                  onChange={(event) => setShowUntracked(event.currentTarget.checked)}
+                  onChange={(event) =>
+                    setShowUntracked(event.currentTarget.checked)
+                  }
                   label='Show untracked detections'
                 />
               </Group>
@@ -621,7 +722,8 @@ export const VideoAnnotationViewer = ({
                                   Track {track.trackId}
                                 </Badge>
                                 <Text size='xs' c='dimmed'>
-                                  {track.frameCount} frames · starts at {track.firstSeen.toFixed(2)}s
+                                  {track.frameCount} frames · starts at{' '}
+                                  {track.firstSeen.toFixed(2)}s
                                 </Text>
                               </Group>
                               {track.classes.length > 0 && (

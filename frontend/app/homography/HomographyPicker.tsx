@@ -170,11 +170,24 @@ export function HomographyPicker({
   const updateMetrics = useCallback(() => {
     if (imageRefA.current && containerRefA.current) {
       const rect = imageRefA.current.getBoundingClientRect();
-      setMetricsA({
+      const newMetrics = {
         width: imageRefA.current.clientWidth,
         height: imageRefA.current.clientHeight,
         offsetX: rect.left,
         offsetY: rect.top,
+      };
+
+      // Only update if metrics have actually changed to avoid unnecessary re-renders
+      setMetricsA((prevMetrics) => {
+        if (
+          prevMetrics.width !== newMetrics.width ||
+          prevMetrics.height !== newMetrics.height ||
+          prevMetrics.offsetX !== newMetrics.offsetX ||
+          prevMetrics.offsetY !== newMetrics.offsetY
+        ) {
+          return newMetrics;
+        }
+        return prevMetrics;
       });
     }
   }, []);
@@ -188,13 +201,29 @@ export function HomographyPicker({
   // Update metrics when screenshot URL changes
   useEffect(() => {
     if (screenshotUrl) {
-      // Small delay to ensure image is loaded
+      // Multiple attempts to ensure image is loaded and metrics are calculated
+      const timers = [
+        setTimeout(() => updateMetrics(), 100),
+        setTimeout(() => updateMetrics(), 500),
+        setTimeout(() => updateMetrics(), 1000),
+      ];
+
+      return () => {
+        timers.forEach((timer) => clearTimeout(timer));
+      };
+    }
+  }, [screenshotUrl, updateMetrics]);
+
+  // Additional effect to update metrics when pairs are loaded
+  useEffect(() => {
+    if (pairs.length > 0 && (imageA || screenshotUrl)) {
+      // Ensure metrics are calculated when pairs exist
       const timer = setTimeout(() => {
         updateMetrics();
       }, 200);
       return () => clearTimeout(timer);
     }
-  }, [screenshotUrl, updateMetrics]);
+  }, [pairs.length, imageA, screenshotUrl, updateMetrics]);
 
   const handleDropA = (files: File[]) => {
     if (files[0]) {
@@ -634,7 +663,12 @@ export function HomographyPicker({
                   ref={imageRefA}
                   src={imageA?.url || screenshotUrl || ''}
                   alt='CCTV'
-                  onLoad={updateMetrics}
+                  onLoad={() => {
+                    // Multiple attempts to ensure metrics are calculated after image loads
+                    updateMetrics();
+                    setTimeout(() => updateMetrics(), 100);
+                    setTimeout(() => updateMetrics(), 300);
+                  }}
                   style={{
                     maxWidth: '100%',
                     height: 'auto',
@@ -643,16 +677,13 @@ export function HomographyPicker({
                 />
                 {/* Render markers */}
                 {pairs.map((pair, index) => {
-                  // Only render if metrics are properly initialized
-                  if (
-                    !metricsA ||
-                    metricsA.width === 0 ||
-                    metricsA.height === 0
-                  ) {
-                    return null;
-                  }
+                  // Use fallback metrics if not properly initialized
+                  const effectiveMetrics =
+                    metricsA && metricsA.width > 0 && metricsA.height > 0
+                      ? metricsA
+                      : { width: 400, height: 300, offsetX: 0, offsetY: 0 }; // Fallback dimensions
 
-                  const pos = denormalizeCoordinates(pair.a, metricsA);
+                  const pos = denormalizeCoordinates(pair.a, effectiveMetrics);
                   return (
                     <Box
                       key={pair.id}
@@ -682,42 +713,49 @@ export function HomographyPicker({
                   );
                 })}
                 {/* Render pending point A marker */}
-                {pendingPointA &&
-                  metricsA &&
-                  metricsA.width > 0 &&
-                  metricsA.height > 0 && (
-                    <Box
-                      style={{
-                        position: 'absolute',
-                        left: denormalizeCoordinates(pendingPointA, metricsA).x,
-                        top: denormalizeCoordinates(pendingPointA, metricsA).y,
-                        transform: 'translate(-50%, -50%)',
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        backgroundColor: '#ffd43b',
-                        color: '#000',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        border: '2px solid white',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                        pointerEvents: 'none',
-                        animation: 'pulse 1s infinite',
-                      }}
-                    >
-                      ?
-                    </Box>
-                  )}
+                {pendingPointA && (
+                  <Box
+                    style={{
+                      position: 'absolute',
+                      left: denormalizeCoordinates(
+                        pendingPointA,
+                        metricsA && metricsA.width > 0 && metricsA.height > 0
+                          ? metricsA
+                          : { width: 400, height: 300, offsetX: 0, offsetY: 0 }
+                      ).x,
+                      top: denormalizeCoordinates(
+                        pendingPointA,
+                        metricsA && metricsA.width > 0 && metricsA.height > 0
+                          ? metricsA
+                          : { width: 400, height: 300, offsetX: 0, offsetY: 0 }
+                      ).y,
+                      transform: 'translate(-50%, -50%)',
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      backgroundColor: '#ffd43b',
+                      color: '#000',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      border: '2px solid white',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                      pointerEvents: 'none',
+                      animation: 'pulse 1s infinite',
+                    }}
+                  >
+                    ?
+                  </Box>
+                )}
               </Box>
               {pickingMode && (
                 <>
                   {pendingPointA && (
                     <Text size='sm' fw={600} c='yellow.7'>
                       ✓ Point A selected: ({pendingPointA.x?.toFixed(0)},{' '}
-                      {pendingPointA.y?.toFixed(0)}) | Norm: (
+                      {pendingPointA.y?.toFixed(0)}) | Normalized: (
                       {pendingPointA.xNorm.toFixed(4)},{' '}
                       {pendingPointA.yNorm.toFixed(4)})
                     </Text>
@@ -725,7 +763,7 @@ export function HomographyPicker({
                   {currentCoordA && (
                     <Text size='xs' c='dimmed'>
                       Hover: ({currentCoordA.x?.toFixed(0)},{' '}
-                      {currentCoordA.y?.toFixed(0)}) | Norm: (
+                      {currentCoordA.y?.toFixed(0)}) | Normalized: (
                       {currentCoordA.xNorm.toFixed(4)},{' '}
                       {currentCoordA.yNorm.toFixed(4)})
                     </Text>
@@ -773,11 +811,15 @@ export function HomographyPicker({
                 {hasMinimumPairs ? 'Ready' : `Need ${4 - pairs.length} more`}
               </Badge>
             </Flex>
+            <Text size='xs' c='dimmed'>
+              Normalized coordinates are values between 0 and 1 representing the
+              position within the image (0,0 = top-left, 1,1 = bottom-right)
+            </Text>
             <Table striped highlightOnHover>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>#</Table.Th>
-                  <Table.Th>A (xNorm, yNorm)</Table.Th>
+                  <Table.Th>A (Normalized Coordinates)</Table.Th>
                   <Table.Th>B (Lat, Lng)</Table.Th>
                   <Table.Th>Actions</Table.Th>
                 </Table.Tr>

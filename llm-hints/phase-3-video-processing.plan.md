@@ -1,4 +1,5 @@
 <!-- f0f8fe1e-a85c-4a1a-81e1-2e23d67bcae3 610de3f3-2c44-44a2-b5ce-dec626ff8ab2 -->
+
 # Phase 3 - Video Processing Run Integration
 
 ## Overview
@@ -30,7 +31,7 @@ from src.common.database.models.user_table import Base
 
 class ProcessingRun(Base):
     __tablename__ = "processing_run"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     homography_session_id = Column(UUID(as_uuid=True), ForeignKey("homography_session.id"))
@@ -40,7 +41,7 @@ class ProcessingRun(Base):
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     finished_at = Column(DateTime)
     error_message = Column(String)
-    
+
     # Relationships
     project = relationship("Project", back_populates="processing_runs")
     detections = relationship("Detection", back_populates="run", cascade="all, delete-orphan")
@@ -60,7 +61,7 @@ from src.common.database.models.user_table import Base
 
 class Detection(Base):
     __tablename__ = "detection"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     run_id = Column(UUID(as_uuid=True), ForeignKey("processing_run.id", ondelete="SET NULL"))
@@ -76,10 +77,10 @@ class Detection(Base):
     wx = Column(Float)  # World x (homography-transformed)
     wy = Column(Float)  # World y (homography-transformed)
     extra = Column(JSONB, nullable=False, default={})  # speed_mph, geo coords, etc.
-    
+
     # Relationships
     run = relationship("ProcessingRun", back_populates="detections")
-    
+
     __table_args__ = (
         Index("detection_project_time_idx", "project_id", "t_ms"),
         Index("detection_project_track_idx", "project_id", "track_id"),
@@ -103,7 +104,7 @@ from src.common.database.models.user_table import Base
 
 class Artifact(Base):
     __tablename__ = "artifact"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     run_id = Column(UUID(as_uuid=True), ForeignKey("processing_run.id", ondelete="SET NULL"))
@@ -111,10 +112,10 @@ class Artifact(Base):
     uri = Column(String, nullable=False)
     meta = Column(JSONB, nullable=False, default={})
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    
+
     # Relationships
     run = relationship("ProcessingRun", back_populates="artifacts")
-    
+
     __table_args__ = (
         CheckConstraint(
             "kind IN ('jsonl_detections', 'csv_detections', 'annotated_video', 'report', 'debug')",
@@ -236,7 +237,7 @@ Key functions:
 def process_video_task(self, project_id: str, run_id: str):
     """
     Process video with YOLO detection, ByteTrack tracking, and speed calculation.
-    
+
     Stages:
     1. Download video from S3
     2. Load homography data
@@ -262,7 +263,7 @@ def process_video_task(self, project_id: str, run_id: str):
 def generate_annotated_video_task(self, project_id: str, run_id: str):
     """
     Generate pre-rendered annotated video with bounding boxes and speed labels.
-    
+
     Steps:
     1. Download original video from S3
     2. Load detections from database
@@ -285,17 +286,17 @@ import json
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
-    
+
     async def connect(self, websocket: WebSocket, project_id: str):
         await websocket.accept()
         if project_id not in self.active_connections:
             self.active_connections[project_id] = set()
         self.active_connections[project_id].add(websocket)
-    
+
     def disconnect(self, websocket: WebSocket, project_id: str):
         if project_id in self.active_connections:
             self.active_connections[project_id].discard(websocket)
-    
+
     async def broadcast_to_project(self, project_id: str, message: dict):
         if project_id in self.active_connections:
             for connection in self.active_connections[project_id]:
@@ -407,40 +408,40 @@ Run `./scripts/generate-client.sh` to update TypeScript SDK.
 **Key implementation**:
 
 ```typescript
-const VideoAnnotationViewer = ({ 
-  videoUrl, 
-  runId 
-}: { 
-  videoUrl: string; 
+const VideoAnnotationViewer = ({
+  videoUrl,
+  runId,
+}: {
+  videoUrl: string;
   runId: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentFrame, setCurrentFrame] = useState(0);
   const [showAnnotations, setShowAnnotations] = useState(true);
-  
+
   const { data: detections } = useDetections(runId, currentFrame);
-  
+
   // Update frame on timeupdate event
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    
+
     const handleTimeUpdate = () => {
       const fps = 30; // Get from video metadata
       const frame = Math.floor(video.currentTime * fps);
       setCurrentFrame(frame);
     };
-    
+
     video.addEventListener('timeupdate', handleTimeUpdate);
     return () => video.removeEventListener('timeupdate', handleTimeUpdate);
   }, []);
-  
+
   return (
     <div style={{ position: 'relative' }}>
       <video ref={videoRef} src={videoUrl} controls />
       {showAnnotations && detections && (
-        <BoundingBoxOverlay 
-          detections={detections} 
+        <BoundingBoxOverlay
+          detections={detections}
           videoWidth={videoRef.current?.videoWidth}
           videoHeight={videoRef.current?.videoHeight}
         />
@@ -565,16 +566,16 @@ Update `frontend/app/routes/projects.$projectId.tsx`:
 
 ### To-dos
 
-- [ ] Create ProcessingRun, Detection, and Artifact SQLAlchemy models with proper relationships and indexes
-- [ ] Generate and verify Alembic migration for processing_run, detection, and artifact tables
-- [ ] Create Pydantic schemas and CRUD functions in features/processing/ with bulk insert support
-- [ ] Implement process_video_task wrapping process-video pipeline with progress updates and detection storage
-- [ ] Implement generate_annotated_video_task for creating downloadable annotated videos
-- [ ] Add WebSocket support with ConnectionManager for real-time processing updates
-- [ ] Implement processing API endpoints (start, status, detections, artifacts, generate video)
-- [ ] Regenerate TypeScript client SDK for new processing endpoints
-- [ ] Create React Query hooks for processing operations and WebSocket connection
-- [ ] Build VideoAnnotationViewer component with live detection overlay and frame synchronization
-- [ ] Create ProcessingPanel component with run status, progress bar, and WebSocket integration
-- [ ] Integrate Processing tab into project detail page with status badges
+- [x] Create ProcessingRun, Detection, and Artifact SQLAlchemy models with proper relationships and indexes
+- [x] Generate and verify Alembic migration for processing_run, detection, and artifact tables
+- [x] Create Pydantic schemas and CRUD functions in features/processing/ with bulk insert support
+- [x] Implement process_video_task wrapping process-video pipeline with progress updates and detection storage
+- [x] Implement generate_annotated_video_task for creating downloadable annotated videos
+- [x] Add WebSocket support with ConnectionManager for real-time processing updates
+- [x] Implement processing API endpoints (start, status, detections, artifacts, generate video)
+- [x] Regenerate TypeScript client SDK for new processing endpoints
+- [x] Create React Query hooks for processing operations and WebSocket connection
+- [x] Build VideoAnnotationViewer component with live detection overlay and frame synchronization
+- [x] Create ProcessingPanel component with run status, progress bar, and WebSocket integration
+- [x] Integrate Processing tab into project detail page with status badges
 - [ ] End-to-end testing: trigger processing, verify real-time updates, test live overlay and video download

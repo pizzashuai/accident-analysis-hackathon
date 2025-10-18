@@ -120,6 +120,14 @@ def upsert_project_location(
 
 def get_project_with_relations(session: Session, project_id: uuid.UUID, user_id: uuid.UUID) -> Project | None:
     """Get a project with all related data loaded."""
-    return session.query(Project).filter(
+    from sqlalchemy.orm import joinedload
+    
+    return session.query(Project).options(
+        joinedload(Project.video),
+        joinedload(Project.location),
+        joinedload(Project.media_assets),
+        joinedload(Project.homography_session),
+        joinedload(Project.processing_runs),
+    ).filter(
         and_(Project.id == project_id, Project.user_id == user_id)
     ).first()

@@ -15,9 +15,9 @@ import re
 import supervision as sv
 from ultralytics import YOLO
 
-from src.enhance_frame import VideoEnhancer
-from src.persist_detections import write_detections_to_jsonl
-from src.annotate_video import VideoAnnotator
+from .src.enhance_frame import VideoEnhancer
+from .src.persist_detections import write_detections_to_jsonl
+from .src.annotate_video import VideoAnnotator
 
 
 def get_next_test_folder_number(out_dir: Path) -> int:

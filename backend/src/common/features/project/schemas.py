@@ -4,6 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field, computed_field
 
+# Import the homography session schema
+from src.common.features.homography.schemas import HomographySessionPublic
+
 
 class ProjectBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
@@ -73,6 +76,7 @@ class ProjectPublic(ProjectBase):
     video: MediaAssetPublic | None = None
     location: ProjectLocationPublic | None = None
     media_assets: list[MediaAssetPublic] = []
+    homography_session: HomographySessionPublic | None = None
 
     model_config = {"from_attributes": True}
 

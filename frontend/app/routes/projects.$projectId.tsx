@@ -22,6 +22,7 @@ import {
   IconCalendar,
   IconVideo,
   IconPhoto,
+  IconCpu,
 } from '@tabler/icons-react';
 import { Link, useNavigate } from 'react-router';
 import { CreateProjectModal } from '~/components/Projects/CreateProjectModal';
@@ -29,11 +30,13 @@ import { VideoUpload } from '~/components/Projects/VideoUpload';
 import { LocationPicker } from '~/components/Projects/LocationPicker';
 import { HomographyPicker } from '~/homography';
 import { VideoAnnotationViewer } from '~/components/VideoAnnotation/VideoAnnotationViewer';
+import { ProcessingPanel } from '~/components/Processing/ProcessingPanel';
 import {
   useProject,
   useDeleteProject,
   useMediaPresignedUrl,
 } from '~/hooks/useProjects';
+import { useProcessingRuns } from '~/hooks/useProcessing';
 import { useCustomToast } from '~/hooks/useCustomToast';
 
 export function meta({ params }: Route.MetaArgs) {
@@ -52,6 +55,12 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
   const [loadingVideoUrl, setLoadingVideoUrl] = useState(false);
   const [loadingScreenshot, setLoadingScreenshot] = useState(false);
   const { data: project, isLoading, error } = useProject(params.projectId);
+  // Only fetch processing runs when needed - defer initial load
+  const [activeTab, setActiveTab] = useState('overview');
+  const { data: processingRuns } = useProcessingRuns(
+    params.projectId,
+    activeTab === 'processing'
+  );
   const deleteProject = useDeleteProject();
   const getMediaPresignedUrl = useMediaPresignedUrl();
   const { showToast } = useCustomToast();
@@ -133,15 +142,26 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
     }
   };
 
-  // Fetch URLs when project data changes
+  // Fetch URLs when project data changes - defer non-critical loads
   useEffect(() => {
     if (project?.video) {
-      fetchVideoUrl();
+      // Only fetch video URL when video tab is active or video is needed
+      const timer = setTimeout(() => {
+        fetchVideoUrl();
+      }, 100);
+      return () => clearTimeout(timer);
     }
+  }, [project?.video]);
+
+  useEffect(() => {
     if (project?.media_assets) {
-      fetchScreenshotUrl();
+      // Only fetch screenshot URL when overview tab is active or screenshot is needed
+      const timer = setTimeout(() => {
+        fetchScreenshotUrl();
+      }, 200);
+      return () => clearTimeout(timer);
     }
-  }, [project]);
+  }, [project?.media_assets]);
 
   if (isLoading) {
     return (
@@ -243,10 +263,10 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                   Location set
                 </Badge>
               )}
-              {project.homography_session && (
+              {(project.homography_session as any) && (
                 <Badge
                   color={
-                    project.homography_session.status === 'solved'
+                    (project.homography_session as any)?.status === 'solved'
                       ? 'green'
                       : 'yellow'
                   }
@@ -254,9 +274,45 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                   leftSection={<IconPhoto size={12} />}
                 >
                   Homography{' '}
-                  {project.homography_session.status === 'solved'
+                  {(project.homography_session as any)?.status === 'solved'
                     ? 'solved'
                     : 'configured'}
+                </Badge>
+              )}
+              {processingRuns?.data && processingRuns.data.length > 0 && (
+                <Badge
+                  color={
+                    processingRuns.data.some(
+                      (run: any) => run.status === 'running'
+                    )
+                      ? 'blue'
+                      : processingRuns.data.some(
+                            (run: any) => run.status === 'completed'
+                          )
+                        ? 'green'
+                        : processingRuns.data.some(
+                              (run: any) => run.status === 'failed'
+                            )
+                          ? 'red'
+                          : 'yellow'
+                  }
+                  variant='light'
+                  leftSection={<IconCpu size={12} />}
+                >
+                  Processing{' '}
+                  {processingRuns.data.some(
+                    (run: any) => run.status === 'running'
+                  )
+                    ? 'running'
+                    : processingRuns.data.some(
+                          (run: any) => run.status === 'completed'
+                        )
+                      ? 'completed'
+                      : processingRuns.data.some(
+                            (run: any) => run.status === 'failed'
+                          )
+                        ? 'failed'
+                        : 'pending'}
                 </Badge>
               )}
             </Group>
@@ -264,12 +320,16 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
         </Card>
 
         {/* Tabs for different sections */}
-        <Tabs defaultValue='overview'>
+        <Tabs
+          value={activeTab}
+          onChange={(value) => setActiveTab(value || 'overview')}
+        >
           <Tabs.List>
             <Tabs.Tab value='overview'>Overview</Tabs.Tab>
             <Tabs.Tab value='video'>Video</Tabs.Tab>
             <Tabs.Tab value='location'>Location</Tabs.Tab>
             <Tabs.Tab value='homography'>Homography</Tabs.Tab>
+            <Tabs.Tab value='processing'>Processing</Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value='overview' pt='md'>
@@ -489,6 +549,11 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
               {videoUrl && (
                 <VideoAnnotationViewer
                   videoUrl={videoUrl}
+                  runId={
+                    processingRuns?.data?.find(
+                      (run: any) => run.status === 'completed'
+                    )?.id
+                  }
                 />
               )}
             </Stack>
@@ -545,9 +610,18 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
 
               <HomographyPicker
                 projectId={params.projectId}
-                existingSession={project.homography_session}
+                existingSession={project.homography_session as any}
               />
             </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value='processing' pt='md'>
+            <ProcessingPanel
+              projectId={params.projectId}
+              homographySolved={
+                (project.homography_session as any)?.status === 'solved'
+              }
+            />
           </Tabs.Panel>
         </Tabs>
       </Stack>

@@ -5,10 +5,14 @@ from datetime import datetime
 from pathlib import Path
 import cv2
 import numpy as np
+import requests
+from typing import Optional
 from src.common.database.models.media_asset_table import MediaAsset
-
+from src.common.database.models.project_table import Project
+from src.common.database.models.homography_session_table import HomographySession
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
+
 
 from src.api.deps import CurrentUser, get_db
 from src.common.features.project import (
@@ -44,6 +48,23 @@ from src.common.features.homography import (
     solve_homography,
     export_homography_data,
 )
+from src.common.features.processing import (
+    ProcessingRunCreate,
+    ProcessingRunPublic,
+    ProcessingRunsPublic,
+    DetectionPublic,
+    DetectionsPublic,
+    ArtifactPublic,
+    ArtifactsPublic,
+    create_processing_run,
+    get_processing_run,
+    list_processing_runs,
+    get_detections_by_run,
+    get_detections_by_frame,
+    list_artifacts,
+    get_artifact,
+)
+from src.worker.celery_app.tasks import process_video_task, generate_annotated_video_task
 from src.common.features.storage import (
     download_file_from_s3,
     extract_first_frame,
@@ -572,4 +593,354 @@ def export_homography_session(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error exporting homography data: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Processing endpoints
+
+@router.post("/{project_id}/processing/start", response_model=ProcessingRunPublic)
+def start_processing(
+    *,
+    project_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+    processing_in: ProcessingRunCreate,
+) -> ProcessingRunPublic:
+    """Start video processing for a project."""
+    try:
+        project_uuid = uuid.UUID(project_id)
+        
+        # Get project and validate ownership
+        project = session.get(Project, project_uuid)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        if project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Validate homography is solved
+        if not project.homography_session:
+            raise HTTPException(status_code=400, detail="No homography session found")
+        
+        homography_session = project.homography_session
+        if not homography_session or homography_session.status != "solved":
+            raise HTTPException(status_code=400, detail="Homography must be solved before processing")
+        
+        # Validate video exists and duration
+        if not project.video_id:
+            raise HTTPException(status_code=400, detail="Project has no video")
+        
+        video_asset = session.get(MediaAsset, project.video_id)
+        if not video_asset:
+            raise HTTPException(status_code=400, detail="Video asset not found")
+        
+        # Check video duration (< 10 seconds)
+        bucket, key = parse_s3_uri(video_asset.uri)
+        presigned_url = generate_presigned_url(bucket, key)
+        
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as temp_video:
+            response = requests.get(presigned_url, stream=True)
+            response.raise_for_status()
+            
+            for chunk in response.iter_content(chunk_size=8192):
+                temp_video.write(chunk)
+            
+            temp_video_path = Path(temp_video.name)
+        
+        cap = cv2.VideoCapture(str(temp_video_path))
+        if not cap.isOpened():
+            temp_video_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail="Failed to open video")
+        
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_sec = frame_count / fps if fps > 0 else 0
+        cap.release()
+        temp_video_path.unlink(missing_ok=True)
+        
+        if duration_sec > 10:
+            raise HTTPException(status_code=400, detail=f"Video duration ({duration_sec:.1f}s) exceeds 10 second limit")
+        
+        # Create processing run
+        processing_run = create_processing_run(
+            db=session,
+            project_id=project_uuid,
+            homography_session_id=project.homography_session.id,
+            params=processing_in.params
+        )
+        
+        # Enqueue processing task
+        process_video_task.delay(project_id, str(processing_run.id))
+        
+        return ProcessingRunPublic.model_validate(processing_run)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting processing: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{project_id}/processing/runs", response_model=ProcessingRunsPublic)
+def list_processing_runs_route(
+    *,
+    project_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> ProcessingRunsPublic:
+    """List all processing runs for a project."""
+    try:
+        project_uuid = uuid.UUID(project_id)
+        
+        # Get project and validate ownership
+        project = session.get(Project, project_uuid)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        if project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        runs = list_processing_runs(db=session, project_id=project_uuid)
+        
+        return ProcessingRunsPublic(
+            data=[ProcessingRunPublic.model_validate(run) for run in runs],
+            count=len(runs)
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing processing runs: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/processing/runs/{run_id}", response_model=ProcessingRunPublic)
+def get_processing_run_route(
+    *,
+    run_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> ProcessingRunPublic:
+    """Get a single processing run."""
+    try:
+        run_uuid = uuid.UUID(run_id)
+        
+        run = get_processing_run(db=session, run_id=run_uuid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Processing run not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, run.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        return ProcessingRunPublic.model_validate(run)
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting processing run: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/processing/runs/{run_id}/detections", response_model=DetectionsPublic)
+def get_detections_route(
+    *,
+    run_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 100,
+    frame_idx: Optional[int] = None,
+) -> DetectionsPublic:
+    """Get paginated detections for a run."""
+    try:
+        run_uuid = uuid.UUID(run_id)
+        
+        run = get_processing_run(db=session, run_id=run_uuid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Processing run not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, run.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        if frame_idx is not None:
+            detections = get_detections_by_frame(db=session, run_id=run_uuid, frame_idx=frame_idx)
+        else:
+            detections = get_detections_by_run(db=session, run_id=run_uuid, skip=skip, limit=limit)
+        
+        return DetectionsPublic(
+            data=[DetectionPublic.model_validate(detection) for detection in detections],
+            count=len(detections)
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting detections: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/processing/runs/{run_id}/detections/frames/{frame_idx}", response_model=DetectionsPublic)
+def get_detections_by_frame_route(
+    *,
+    run_id: str,
+    frame_idx: int,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> DetectionsPublic:
+    """Get detections for a specific frame."""
+    try:
+        run_uuid = uuid.UUID(run_id)
+        
+        run = get_processing_run(db=session, run_id=run_uuid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Processing run not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, run.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        detections = get_detections_by_frame(db=session, run_id=run_uuid, frame_idx=frame_idx)
+        
+        return DetectionsPublic(
+            data=[DetectionPublic.model_validate(detection) for detection in detections],
+            count=len(detections)
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting detections by frame: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/processing/runs/{run_id}/generate-video", response_model=ArtifactPublic)
+def generate_annotated_video_route(
+    *,
+    run_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> ArtifactPublic:
+    """Generate annotated video for a completed processing run."""
+    try:
+        run_uuid = uuid.UUID(run_id)
+        
+        run = get_processing_run(db=session, run_id=run_uuid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Processing run not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, run.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Validate run is completed
+        if run.status != "completed":
+            raise HTTPException(status_code=400, detail="Processing run must be completed to generate video")
+        
+        # Enqueue video generation task
+        generate_annotated_video_task.delay(str(project.id), str(run.id))
+        
+        # Return a placeholder artifact (the actual artifact will be created by the task)
+        placeholder_artifact = ArtifactPublic(
+            id=uuid.uuid4(),
+            kind="annotated_video",
+            uri="",  # Will be updated by the task
+            meta={"status": "generating"},
+            created_at=datetime.utcnow()
+        )
+        
+        return placeholder_artifact
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating annotated video: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/processing/runs/{run_id}/artifacts", response_model=ArtifactsPublic)
+def list_artifacts_route(
+    *,
+    run_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> ArtifactsPublic:
+    """List artifacts for a processing run."""
+    try:
+        run_uuid = uuid.UUID(run_id)
+        
+        run = get_processing_run(db=session, run_id=run_uuid)
+        if not run:
+            raise HTTPException(status_code=404, detail="Processing run not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, run.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        artifacts = list_artifacts(db=session, run_id=run_uuid)
+        
+        return ArtifactsPublic(
+            data=[ArtifactPublic.model_validate(artifact) for artifact in artifacts],
+            count=len(artifacts)
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing artifacts: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/artifacts/{artifact_id}/download")
+def get_artifact_download_url(
+    *,
+    artifact_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+) -> dict:
+    """Get presigned download URL for an artifact."""
+    try:
+        artifact_uuid = uuid.UUID(artifact_id)
+        
+        artifact = get_artifact(db=session, artifact_id=artifact_uuid)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, artifact.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Generate presigned URL
+        bucket, key = parse_s3_uri(artifact.uri)
+        presigned_url = generate_presigned_url(bucket, key)
+        
+        return {"url": presigned_url}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting artifact download URL: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

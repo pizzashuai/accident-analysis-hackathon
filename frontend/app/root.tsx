@@ -39,6 +39,11 @@ const queryClient = new QueryClient({
   },
 });
 
+export const links: Route.LinksFunction = () => [
+  { rel: 'icon', href: '/favicon.ico', type: 'image/x-icon' },
+  { rel: 'icon', href: '/favicon.png', type: 'image/png' },
+];
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <html lang='en' {...mantineHtmlProps}>

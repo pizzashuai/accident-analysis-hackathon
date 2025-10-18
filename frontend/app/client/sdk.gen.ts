@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -472,6 +472,187 @@ export class ProjectsService {
             url: '/api/v1/projects/homography/sessions/{session_id}/export',
             path: {
                 session_id: data.sessionId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Start Processing
+     * Start video processing for a project.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.requestBody
+     * @returns ProcessingRunPublic Successful Response
+     * @throws ApiError
+     */
+    public static startProcessing(data: ProjectsStartProcessingData): CancelablePromise<ProjectsStartProcessingResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/processing/start',
+            path: {
+                project_id: data.projectId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Processing Runs Route
+     * List all processing runs for a project.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns ProcessingRunsPublic Successful Response
+     * @throws ApiError
+     */
+    public static listProcessingRunsRoute(data: ProjectsListProcessingRunsRouteData): CancelablePromise<ProjectsListProcessingRunsRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/processing/runs',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Processing Run Route
+     * Get a single processing run.
+     * @param data The data for the request.
+     * @param data.runId
+     * @returns ProcessingRunPublic Successful Response
+     * @throws ApiError
+     */
+    public static getProcessingRunRoute(data: ProjectsGetProcessingRunRouteData): CancelablePromise<ProjectsGetProcessingRunRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/processing/runs/{run_id}',
+            path: {
+                run_id: data.runId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Detections Route
+     * Get paginated detections for a run.
+     * @param data The data for the request.
+     * @param data.runId
+     * @param data.skip
+     * @param data.limit
+     * @param data.frameIdx
+     * @returns DetectionsPublic Successful Response
+     * @throws ApiError
+     */
+    public static getDetectionsRoute(data: ProjectsGetDetectionsRouteData): CancelablePromise<ProjectsGetDetectionsRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/processing/runs/{run_id}/detections',
+            path: {
+                run_id: data.runId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit,
+                frame_idx: data.frameIdx
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Detections By Frame Route
+     * Get detections for a specific frame.
+     * @param data The data for the request.
+     * @param data.runId
+     * @param data.frameIdx
+     * @returns DetectionsPublic Successful Response
+     * @throws ApiError
+     */
+    public static getDetectionsByFrameRoute(data: ProjectsGetDetectionsByFrameRouteData): CancelablePromise<ProjectsGetDetectionsByFrameRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/processing/runs/{run_id}/detections/frames/{frame_idx}',
+            path: {
+                run_id: data.runId,
+                frame_idx: data.frameIdx
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Generate Annotated Video Route
+     * Generate annotated video for a completed processing run.
+     * @param data The data for the request.
+     * @param data.runId
+     * @returns ArtifactPublic Successful Response
+     * @throws ApiError
+     */
+    public static generateAnnotatedVideoRoute(data: ProjectsGenerateAnnotatedVideoRouteData): CancelablePromise<ProjectsGenerateAnnotatedVideoRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/processing/runs/{run_id}/generate-video',
+            path: {
+                run_id: data.runId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Artifacts Route
+     * List artifacts for a processing run.
+     * @param data The data for the request.
+     * @param data.runId
+     * @returns ArtifactsPublic Successful Response
+     * @throws ApiError
+     */
+    public static listArtifactsRoute(data: ProjectsListArtifactsRouteData): CancelablePromise<ProjectsListArtifactsRouteResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/processing/runs/{run_id}/artifacts',
+            path: {
+                run_id: data.runId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Artifact Download Url
+     * Get presigned download URL for an artifact.
+     * @param data The data for the request.
+     * @param data.artifactId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static getArtifactDownloadUrl(data: ProjectsGetArtifactDownloadUrlData): CancelablePromise<ProjectsGetArtifactDownloadUrlResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/artifacts/{artifact_id}/download',
+            path: {
+                artifact_id: data.artifactId
             },
             errors: {
                 422: 'Validation Error'
