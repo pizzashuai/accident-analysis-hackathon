@@ -47,7 +47,7 @@ export function MapDisplay({
   height = 400,
   center = { lat: 1.3521, lng: 103.8198 }, // Default to Singapore
   zoom = 12,
-  apiKey = 'AIzaSyCYrfgKpls8rM2nzl7qIFXhTF2jT9gbOgA',
+  apiKey = import.meta.env.VITE_GOOGLE_MAP_KEY,
   onMapClick,
   onMapHover,
   pairs = [],

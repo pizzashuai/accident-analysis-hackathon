@@ -20,16 +20,6 @@ function Navbar() {
       p='md'
     >
       <Group gap='lg'>
-        <Link to='/' style={{ textDecoration: 'none' }}>
-          <Image
-            src='/logo.png'
-            alt='Logo'
-            h={40}
-            w='auto'
-            fallbackSrc='https://placehold.co/150x40?text=Logo'
-          />
-        </Link>
-
         <Group gap='xs'>
           <NavLink
             component={Link}
