@@ -154,6 +154,40 @@ def delete_file_from_s3(bucket: str, key: str) -> bool:
         raise
 
 
+def download_file_from_s3(bucket: str, key: str, local_path: str) -> bool:
+    """
+    Download file from S3 to local path.
+    
+    Args:
+        bucket: S3 bucket name
+        key: S3 object key
+        local_path: Local file path to save the downloaded file
+        
+    Returns:
+        bool: True if download successful
+        
+    Raises:
+        ClientError: If S3 download fails
+        ValueError: If credentials are not configured
+    """
+    try:
+        client = get_s3_client()
+        
+        # Download file
+        client.download_file(bucket, key, local_path)
+        
+        logger.info(f"Successfully downloaded file from S3: s3://{bucket}/{key} to {local_path}")
+        
+        return True
+        
+    except ClientError as e:
+        logger.error(f"Failed to download file from S3: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error downloading from S3: {e}")
+        raise
+
+
 def parse_s3_uri(uri: str) -> tuple[str, str]:
     """
     Parse S3 URI to extract bucket and key.

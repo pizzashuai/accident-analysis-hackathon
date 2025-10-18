@@ -36,6 +36,7 @@ import {
   useSolveHomography,
   useExtractFrame,
 } from '~/hooks/useHomography';
+import { useMediaPresignedUrl } from '~/hooks/useProjects';
 import { useCustomToast } from '~/hooks/useCustomToast';
 import type { HomographySessionPublic, HomographyPairPublic } from '~/client';
 
@@ -96,6 +97,8 @@ export function HomographyPicker({
   const [geocoding, setGeocoding] = useState(false);
   const [mapKey, setMapKey] = useState(0); // Key to force map re-render
   const [saving, setSaving] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [loadingScreenshot, setLoadingScreenshot] = useState(false);
 
   const imageRefA = useRef<HTMLImageElement>(null);
   const containerRefA = useRef<HTMLDivElement>(null);
@@ -120,6 +123,28 @@ export function HomographyPicker({
   const deletePair = useDeleteHomographyPair();
   const solveHomography = useSolveHomography();
   const extractFrame = useExtractFrame();
+  const getMediaPresignedUrl = useMediaPresignedUrl();
+
+  // Fetch screenshot URL from media asset
+  const fetchScreenshotUrl = async (screenshotAssetId: string) => {
+    setLoadingScreenshot(true);
+    try {
+      const response = await getMediaPresignedUrl.mutateAsync({
+        projectId,
+        mediaAssetId: screenshotAssetId,
+      });
+      setScreenshotUrl((response as { url: string }).url);
+      // Trigger metrics update after a short delay to ensure image is loaded
+      setTimeout(() => {
+        updateMetrics();
+      }, 100);
+    } catch (error) {
+      console.error('Failed to fetch screenshot URL:', error);
+      showToast('Failed to load screenshot', 'error');
+    } finally {
+      setLoadingScreenshot(false);
+    }
+  };
 
   // Load existing session data on mount
   useEffect(() => {
@@ -134,10 +159,9 @@ export function HomographyPicker({
       );
       setPairs(convertedPairs);
 
-      // Set screenshot if available
+      // Load screenshot if available
       if (session.screenshot_asset_id) {
-        // TODO: Load screenshot from media asset
-        // For now, we'll show the extract frame button
+        fetchScreenshotUrl(session.screenshot_asset_id);
       }
     }
   }, [session]);
@@ -160,6 +184,17 @@ export function HomographyPicker({
     window.addEventListener('resize', updateMetrics);
     return () => window.removeEventListener('resize', updateMetrics);
   }, [updateMetrics, imageA]);
+
+  // Update metrics when screenshot URL changes
+  useEffect(() => {
+    if (screenshotUrl) {
+      // Small delay to ensure image is loaded
+      const timer = setTimeout(() => {
+        updateMetrics();
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [screenshotUrl, updateMetrics]);
 
   const handleDropA = (files: File[]) => {
     if (files[0]) {
@@ -351,7 +386,7 @@ export function HomographyPicker({
     setMapKey((prev) => prev + 1);
   };
 
-  const bothImagesLoaded = imageA;
+  const bothImagesLoaded = imageA || screenshotUrl;
   const hasMinimumPairs = pairs.length >= 4;
   const isSolved = session?.status === 'solved';
 
@@ -404,7 +439,7 @@ export function HomographyPicker({
       </Paper>
 
       {/* Extract Frame Section */}
-      {session && !imageA && (
+      {session && !imageA && !screenshotUrl && (
         <Paper p='md' withBorder>
           <Stack gap='sm'>
             <Text fw={600} size='sm'>
@@ -434,7 +469,48 @@ export function HomographyPicker({
           <Text fw={600} size='sm'>
             CCTV Image (A)
           </Text>
-          {!imageA ? (
+          {imageA ? (
+            <Box>
+              <img
+                src={imageA.url}
+                alt='CCTV'
+                style={{ maxWidth: '100%', height: 'auto' }}
+              />
+              <Button
+                size='xs'
+                variant='light'
+                color='red'
+                onClick={() => setImageA(null)}
+                mt='xs'
+                fullWidth
+              >
+                Remove
+              </Button>
+            </Box>
+          ) : screenshotUrl ? (
+            <Box>
+              {loadingScreenshot ? (
+                <Group justify='center' p='xl'>
+                  <Loader size='md' />
+                  <Text size='sm' c='dimmed'>
+                    Loading screenshot...
+                  </Text>
+                </Group>
+              ) : (
+                <img
+                  src={screenshotUrl}
+                  alt='Video Screenshot'
+                  style={{ maxWidth: '100%', height: 'auto' }}
+                  onError={() => {
+                    showToast('Screenshot failed to load', 'error');
+                  }}
+                />
+              )}
+              <Text size='xs' c='dimmed' mt='xs'>
+                First frame extracted from video
+              </Text>
+            </Box>
+          ) : (
             <Dropzone
               onDrop={handleDropA}
               accept={IMAGE_MIME_TYPE}
@@ -462,24 +538,6 @@ export function HomographyPicker({
                 </div>
               </Group>
             </Dropzone>
-          ) : (
-            <Box>
-              <img
-                src={imageA.url}
-                alt='CCTV'
-                style={{ maxWidth: '100%', height: 'auto' }}
-              />
-              <Button
-                size='xs'
-                variant='light'
-                color='red'
-                onClick={() => setImageA(null)}
-                mt='xs'
-                fullWidth
-              >
-                Remove
-              </Button>
-            </Box>
           )}
         </Stack>
       </Paper>
@@ -574,7 +632,7 @@ export function HomographyPicker({
               >
                 <img
                   ref={imageRefA}
-                  src={imageA.url}
+                  src={imageA?.url || screenshotUrl || ''}
                   alt='CCTV'
                   onLoad={updateMetrics}
                   style={{
@@ -585,6 +643,15 @@ export function HomographyPicker({
                 />
                 {/* Render markers */}
                 {pairs.map((pair, index) => {
+                  // Only render if metrics are properly initialized
+                  if (
+                    !metricsA ||
+                    metricsA.width === 0 ||
+                    metricsA.height === 0
+                  ) {
+                    return null;
+                  }
+
                   const pos = denormalizeCoordinates(pair.a, metricsA);
                   return (
                     <Box
@@ -615,32 +682,35 @@ export function HomographyPicker({
                   );
                 })}
                 {/* Render pending point A marker */}
-                {pendingPointA && (
-                  <Box
-                    style={{
-                      position: 'absolute',
-                      left: denormalizeCoordinates(pendingPointA, metricsA).x,
-                      top: denormalizeCoordinates(pendingPointA, metricsA).y,
-                      transform: 'translate(-50%, -50%)',
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      backgroundColor: '#ffd43b',
-                      color: '#000',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      border: '2px solid white',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                      pointerEvents: 'none',
-                      animation: 'pulse 1s infinite',
-                    }}
-                  >
-                    ?
-                  </Box>
-                )}
+                {pendingPointA &&
+                  metricsA &&
+                  metricsA.width > 0 &&
+                  metricsA.height > 0 && (
+                    <Box
+                      style={{
+                        position: 'absolute',
+                        left: denormalizeCoordinates(pendingPointA, metricsA).x,
+                        top: denormalizeCoordinates(pendingPointA, metricsA).y,
+                        transform: 'translate(-50%, -50%)',
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        backgroundColor: '#ffd43b',
+                        color: '#000',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '12px',
+                        fontWeight: 'bold',
+                        border: '2px solid white',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                        pointerEvents: 'none',
+                        animation: 'pulse 1s infinite',
+                      }}
+                    >
+                      ?
+                    </Box>
+                  )}
               </Box>
               {pickingMode && (
                 <>

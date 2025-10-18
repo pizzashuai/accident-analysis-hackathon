@@ -1,6 +1,7 @@
 import logging
 import tempfile
 import uuid
+from datetime import datetime
 from pathlib import Path
 import cv2
 import numpy as np
@@ -44,6 +45,8 @@ from src.common.features.homography import (
     export_homography_data,
 )
 from src.common.features.storage import (
+    download_file_from_s3,
+    extract_first_frame,
     extract_video_metadata,
     generate_presigned_url,
     parse_s3_uri,
@@ -344,17 +347,48 @@ def extract_video_frame(
         # Parse S3 URI and download video temporarily
         bucket, key = parse_s3_uri(video_asset.uri)
         
-        # For now, we'll use a placeholder approach since we need S3 download functionality
-        # In a real implementation, you'd download the video from S3 first
-        raise HTTPException(status_code=501, detail="Frame extraction not yet implemented - requires S3 download functionality")
-
-        # TODO: Implement actual frame extraction:
+        # Create temporary file for video download
+        temp_video_path = Path(tempfile.mktemp(suffix=".mp4"))
+        temp_file_path = temp_video_path
+        
         # 1. Download video from S3 to temp file
+        download_file_from_s3(bucket, key, str(temp_video_path))
+        
         # 2. Use OpenCV to extract first frame
-        # 3. Save frame as image
+        temp_frame_path = Path(tempfile.mktemp(suffix=".png"))
+        extract_first_frame(temp_video_path, temp_frame_path)
+        
+        # 3. Save frame as image (already done by extract_first_frame)
         # 4. Upload image to S3
+        frame_key = f"frames/{project_id}/{uuid.uuid4()}.png"
+        with open(temp_frame_path, 'rb') as frame_file:
+            upload_result = upload_file_to_s3(frame_file, bucket, frame_key)
+        
         # 5. Create media asset record
+        frame_asset = MediaAsset(
+            project_id=project_id,
+            kind="image",
+            uri=f"s3://{bucket}/{frame_key}",
+            bytes=temp_frame_path.stat().st_size,
+            meta={
+                "extracted_from_video": str(video_asset.id),
+                "extraction_timestamp": datetime.utcnow().isoformat(),
+                "frame_type": "first_frame"
+            }
+        )
+        session.add(frame_asset)
+        session.flush()  # Get the ID
+        
         # 6. Link to homography session
+        homography_session = get_or_create_session_for_project(session, project_id)
+        homography_session.screenshot_asset_id = frame_asset.id
+        session.commit()
+        
+        # Clean up temporary frame file
+        if temp_frame_path.exists():
+            temp_frame_path.unlink(missing_ok=True)
+        
+        return MediaAssetPublic.model_validate(frame_asset)
         
     except HTTPException:
         raise
