@@ -10,7 +10,7 @@ from typing import Optional
 from src.common.database.models.media_asset_table import MediaAsset
 from src.common.database.models.project_table import Project
 from src.common.database.models.homography_session_table import HomographySession
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
 from sqlalchemy.orm import Session
 
 
@@ -943,4 +943,60 @@ def get_artifact_download_url(
         raise
     except Exception as e:
         logger.error(f"Error getting artifact download URL: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/artifacts/{artifact_id}/content")
+def get_artifact_content(
+    *,
+    artifact_id: str,
+    session: Session = Depends(get_db),
+    current_user: CurrentUser,
+):
+    """Get artifact content directly (proxied from S3 to avoid CORS issues)."""
+    try:
+        artifact_uuid = uuid.UUID(artifact_id)
+        
+        artifact = get_artifact(db=session, artifact_id=artifact_uuid)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+        
+        # Validate ownership through project
+        project = session.get(Project, artifact.project_id)
+        if not project or project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Generate presigned URL and fetch content
+        bucket, key = parse_s3_uri(artifact.uri)
+        presigned_url = generate_presigned_url(bucket, key)
+        
+        # Fetch content from S3
+        import requests
+        response = requests.get(presigned_url)
+        response.raise_for_status()
+        
+        # Determine content type based on artifact kind
+        content_type = "application/octet-stream"
+        if artifact.kind == "jsonl_detections":
+            content_type = "application/json"
+        elif artifact.kind == "csv_detections":
+            content_type = "text/csv"
+        
+        return Response(
+            content=response.content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f"attachment; filename={key.split('/')[-1]}",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting artifact content: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

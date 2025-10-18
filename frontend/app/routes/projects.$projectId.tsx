@@ -549,11 +549,7 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
               {videoUrl && (
                 <VideoAnnotationViewer
                   videoUrl={videoUrl}
-                  runId={
-                    processingRuns?.data?.find(
-                      (run: any) => run.status === 'completed'
-                    )?.id
-                  }
+                  projectId={params.projectId}
                 />
               )}
             </Stack>

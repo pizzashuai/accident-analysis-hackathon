@@ -481,6 +481,12 @@ export type ProjectsGetArtifactDownloadUrlResponse = ({
     [key: string]: unknown;
 });
 
+export type ProjectsGetArtifactContentData = {
+    artifactId: string;
+};
+
+export type ProjectsGetArtifactContentResponse = (unknown);
+
 export type UsersReadUsersData = {
     limit?: number;
     skip?: number;

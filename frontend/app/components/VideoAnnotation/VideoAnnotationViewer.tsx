@@ -21,7 +21,13 @@ import {
   IconEyeOff,
   IconUpload,
 } from '@tabler/icons-react';
-import { useDetections } from '../../hooks/useProcessing';
+import {
+  useDetections,
+  useArtifactDownloadUrl,
+  useArtifactContent,
+  useProcessingRuns,
+} from '../../hooks/useProcessing';
+import { JsonlFileSelector } from './JsonlFileSelector';
 
 type BboxTuple = [number, number, number, number];
 
@@ -51,6 +57,10 @@ interface VideoAnnotationViewerProps {
    * Optional run ID for API-based detections
    */
   runId?: string;
+  /**
+   * Optional project ID for JSONL artifact selection
+   */
+  projectId?: string;
 }
 
 interface TrackSummary {
@@ -61,7 +71,7 @@ interface TrackSummary {
   maxConfidence?: number;
 }
 
-const TIME_KEY_SCALE = 1000;
+const TIME_KEY_SCALE = 1000; // Convert seconds to milliseconds for indexing
 
 const parseJsonlDetections = (payload: string): DetectionRecord[] => {
   const lines = payload.split(/\r?\n/);
@@ -77,7 +87,9 @@ const parseJsonlDetections = (payload: string): DetectionRecord[] => {
     try {
       value = JSON.parse(line);
     } catch (error) {
-      throw new Error(`Line ${index + 1}: ${String(error)}`);
+      throw new Error(
+        `Line ${index + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
 
     if (typeof value !== 'object' || value === null) {
@@ -227,6 +239,7 @@ export const VideoAnnotationViewer = ({
   videoUrl,
   initialDetections = [],
   runId,
+  projectId,
 }: VideoAnnotationViewerProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -237,6 +250,10 @@ export const VideoAnnotationViewer = ({
   const [detections, setDetections] =
     useState<DetectionRecord[]>(initialDetections);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(
+    null
+  );
+  const [useApiDetections, setUseApiDetections] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [enabledTrackIds, setEnabledTrackIds] = useState<number[]>([]);
   const [showUntracked, setShowUntracked] = useState(true);
@@ -244,44 +261,109 @@ export const VideoAnnotationViewer = ({
   const [focusedTrackId, setFocusedTrackId] = useState<number | null>(null);
   const [currentFrame, setCurrentFrame] = useState(0);
 
+  // Get available processing runs for API detection selection
+  const { data: processingRuns } = useProcessingRuns(
+    projectId || '',
+    !!projectId
+  );
+
+  // Determine which runId to use for API detections
+  const effectiveRunId = useApiDetections
+    ? runId ||
+      processingRuns?.data?.find((run: any) => run.status === 'completed')?.id
+    : null;
+
   // API-based detections
   const { data: apiDetections, isLoading: loadingDetections } = useDetections(
-    runId || '',
+    effectiveRunId || '',
     undefined,
     0,
     10000 // Get all detections
   );
 
+  // Artifact-based JSONL loading
+  const { data: artifactContent, isLoading: loadingArtifactContent } =
+    useArtifactContent(selectedArtifactId || '', !!selectedArtifactId);
+
   // Convert API detections to DetectionRecord format
-  const convertedApiDetections = useMemo(() => {
+  const convertedApiDetections = useMemo((): DetectionRecord[] => {
     if (!apiDetections?.data) return [];
 
-    return apiDetections.data.map((detection) => ({
-      video_id: 'api',
-      frame: detection.frame_idx,
-      time: detection.t_ms / 1000.0,
-      track_id: detection.track_id,
-      class_id: detection.extra?.class_id,
-      class_name: detection.cls,
-      conf: detection.conf,
-      bbox_xyxy: [
-        detection.x,
-        detection.y,
-        detection.x + detection.w,
-        detection.y + detection.h,
-      ] as BboxTuple,
-      center: detection.extra?.center || [
-        detection.x + detection.w / 2,
-        detection.y + detection.h / 2,
-      ],
-      speed_mph: detection.extra?.speed_mph,
-      world_coords:
-        detection.wx && detection.wy ? [detection.wx, detection.wy] : undefined,
-    }));
+    const converted: DetectionRecord[] = apiDetections.data.map(
+      (detection) => ({
+        video_id: 'api',
+        frame: detection.frame_idx,
+        time: detection.t_ms / 1000.0, // Convert milliseconds to seconds
+        track_id: detection.track_id,
+        class_id:
+          typeof detection.extra?.class_id === 'number'
+            ? detection.extra.class_id
+            : undefined,
+        class_name: detection.cls,
+        conf: detection.conf ?? undefined,
+        bbox_xyxy: [
+          detection.x,
+          detection.y,
+          detection.x + detection.w,
+          detection.y + detection.h,
+        ] as BboxTuple,
+        center:
+          Array.isArray(detection.extra?.center) &&
+          detection.extra.center.length >= 2
+            ? ([detection.extra.center[0], detection.extra.center[1]] as [
+                number,
+                number,
+              ])
+            : [detection.x + detection.w / 2, detection.y + detection.h / 2],
+        speed_mph:
+          typeof detection.extra?.speed_mph === 'number'
+            ? detection.extra.speed_mph
+            : undefined,
+        world_coords:
+          detection.wx && detection.wy
+            ? [detection.wx, detection.wy]
+            : undefined,
+      })
+    );
+
+    return converted;
   }, [apiDetections]);
 
-  // Use API detections if runId is provided, otherwise use initialDetections or uploaded file
-  const effectiveDetections = runId ? convertedApiDetections : detections;
+  // Load JSONL data from artifact when selected
+  useEffect(() => {
+    console.log('useEffect artifactContent:', {
+      selectedArtifactId,
+      artifactContent: !!artifactContent,
+    });
+    if (!selectedArtifactId || !artifactContent) {
+      return;
+    }
+
+    const loadArtifactJsonl = async () => {
+      try {
+        setParseError(null);
+        const parsed = parseJsonlDetections(artifactContent as string);
+        console.log(
+          'Loading artifact JSONL, parsed detections:',
+          parsed.length
+        );
+        setDetections(parsed);
+        setEnabledTrackIds(extractTrackSummaries(parsed).map((t) => t.trackId));
+        setSelectedFile(null); // Clear file selection when using artifact
+      } catch (error) {
+        console.error('Error parsing artifact JSONL:', error);
+        setParseError(error instanceof Error ? error.message : 'Unknown error');
+        setDetections(initialDetections);
+      }
+    };
+
+    loadArtifactJsonl();
+  }, [selectedArtifactId, artifactContent]);
+
+  // Use API detections if useApiDetections is true, otherwise use initialDetections, uploaded file, or artifact
+  const effectiveDetections = useApiDetections
+    ? convertedApiDetections
+    : detections;
 
   const detectionIndex = useMemo(
     () => buildDetectionTimeIndex(effectiveDetections),
@@ -294,16 +376,25 @@ export const VideoAnnotationViewer = ({
   );
 
   useEffect(() => {
-    if (!initialDetections.length && !runId) {
+    console.log('useEffect API detections:', {
+      initialDetectionsLength: initialDetections.length,
+      useApiDetections,
+      effectiveDetectionsLength: effectiveDetections.length,
+    });
+    if (!initialDetections.length && !useApiDetections) {
       return;
     }
-    setDetections(effectiveDetections);
-    setEnabledTrackIds((ids) =>
-      ids.length
-        ? ids
-        : extractTrackSummaries(effectiveDetections).map((t) => t.trackId)
-    );
-  }, [effectiveDetections, initialDetections.length, runId]);
+    // Only update detections if we're switching to API mode or if we have initial detections
+    if (useApiDetections && !initialDetections.length) {
+      console.log('Setting detections from API:', effectiveDetections.length);
+      setDetections(effectiveDetections);
+      setEnabledTrackIds((ids) =>
+        ids.length
+          ? ids
+          : extractTrackSummaries(effectiveDetections).map((t) => t.trackId)
+      );
+    }
+  }, [useApiDetections, initialDetections.length]);
 
   useEffect(() => {
     const trackIds = trackSummaries.map((track) => track.trackId);
@@ -312,7 +403,15 @@ export const VideoAnnotationViewer = ({
         return trackIds;
       }
       const next = prev.filter((trackId) => trackIds.includes(trackId));
-      return next;
+
+      // Only update if the arrays are actually different
+      if (
+        next.length !== prev.length ||
+        !next.every((id, index) => id === prev[index])
+      ) {
+        return next;
+      }
+      return prev; // No change needed
     });
   }, [trackSummaries]);
 
@@ -323,13 +422,15 @@ export const VideoAnnotationViewer = ({
 
   const handleFileChange = useCallback(
     (file: File | null) => {
-      if (runId) {
+      if (useApiDetections) {
         // Don't allow file upload when using API detections
         return;
       }
 
       setParseError(null);
       setSelectedFile(file);
+      setSelectedArtifactId(null); // Clear artifact selection when file is uploaded
+      setUseApiDetections(false); // Clear API detection mode when file is uploaded
 
       if (!file) {
         setDetections(initialDetections);
@@ -348,7 +449,9 @@ export const VideoAnnotationViewer = ({
             extractTrackSummaries(parsed).map((t) => t.trackId)
           );
         } catch (error) {
-          setParseError(error instanceof Error ? error.message : String(error));
+          setParseError(
+            error instanceof Error ? error.message : 'Unknown error'
+          );
           setDetections(initialDetections);
         }
       };
@@ -379,6 +482,27 @@ export const VideoAnnotationViewer = ({
   const selectAllTracks = useCallback(() => {
     setEnabledTrackIds(trackSummaries.map((track) => track.trackId));
   }, [trackSummaries]);
+
+  const handleArtifactSelect = useCallback(
+    (artifactId: string | null) => {
+      setSelectedArtifactId(artifactId);
+      setUseApiDetections(false); // Clear API detection mode when artifact is selected
+      if (!artifactId) {
+        setDetections(initialDetections);
+        setSelectedFile(null);
+      }
+    },
+    [initialDetections]
+  );
+
+  const handleApiDetectionToggle = useCallback(() => {
+    setUseApiDetections(!useApiDetections);
+    if (!useApiDetections) {
+      // Switching to API mode - clear other selections
+      setSelectedArtifactId(null);
+      setSelectedFile(null);
+    }
+  }, [useApiDetections]);
 
   const cancelAnimation = useCallback(() => {
     if (animationHandle.current !== null) {
@@ -415,7 +539,27 @@ export const VideoAnnotationViewer = ({
     ctx.clearRect(0, 0, width, height);
 
     const currentKey = Math.round(videoEl.currentTime * TIME_KEY_SCALE);
-    const frameDetections = detectionIndex.get(currentKey) ?? [];
+
+    // Try exact match first, then look for nearby times (±100ms tolerance)
+    let frameDetections = detectionIndex.get(currentKey) ?? [];
+
+    if (frameDetections.length === 0) {
+      // Look for detections within ±100ms tolerance
+      const tolerance = 100; // 100ms tolerance
+      for (let offset = 0; offset <= tolerance; offset += 10) {
+        const key1 = currentKey + offset;
+        const key2 = currentKey - offset;
+
+        if (detectionIndex.has(key1)) {
+          frameDetections = detectionIndex.get(key1) ?? [];
+          break;
+        }
+        if (detectionIndex.has(key2)) {
+          frameDetections = detectionIndex.get(key2) ?? [];
+          break;
+        }
+      }
+    }
 
     const visibleDetections = frameDetections.filter((det) => {
       if (det.track_id === null || det.track_id === undefined) {
@@ -573,44 +717,85 @@ export const VideoAnnotationViewer = ({
           </Text>
         </Stack>
 
-        <Group align='flex-end'>
-          {!runId && (
-            <FileInput
-              label='Load detection JSONL'
-              placeholder='Upload detections.jsonl'
-              accept='.jsonl,.json,.txt'
-              value={selectedFile}
-              onChange={handleFileChange}
-              leftSection={<IconUpload size={16} />}
-              withAsterisk={!detections.length}
-              clearable
+        <Stack gap='md'>
+          {/* Data Source Selection */}
+          {projectId &&
+            processingRuns?.data?.some(
+              (run: any) => run.status === 'completed'
+            ) && (
+              <Group gap='md' align='flex-end'>
+                <Button
+                  variant={useApiDetections ? 'filled' : 'light'}
+                  color={useApiDetections ? 'blue' : 'gray'}
+                  onClick={handleApiDetectionToggle}
+                  size='sm'
+                >
+                  {useApiDetections
+                    ? 'Using API Detections'
+                    : 'Use API Detections'}
+                </Button>
+                {useApiDetections && loadingDetections && (
+                  <Group gap='xs'>
+                    <Loader size='sm' />
+                    <Text size='sm' c='dimmed'>
+                      Loading API detections...
+                    </Text>
+                  </Group>
+                )}
+                {!useApiDetections &&
+                  selectedArtifactId &&
+                  loadingArtifactContent && (
+                    <Group gap='xs'>
+                      <Loader size='sm' />
+                      <Text size='sm' c='dimmed'>
+                        Loading JSONL file...
+                      </Text>
+                    </Group>
+                  )}
+              </Group>
+            )}
+
+          {/* JSONL Artifact Selection */}
+          {projectId && !useApiDetections && (
+            <JsonlFileSelector
+              projectId={projectId}
+              selectedArtifactId={selectedArtifactId}
+              onArtifactSelect={handleArtifactSelect}
+              disabled={useApiDetections}
             />
           )}
-          {runId && loadingDetections && (
-            <Group gap='xs'>
-              <Loader size='sm' />
-              <Text size='sm' c='dimmed'>
-                Loading detections...
-              </Text>
-            </Group>
-          )}
-          <Button
-            variant='light'
-            onClick={selectAllTracks}
-            disabled={!totalTrackCount}
-          >
-            Select all
-          </Button>
-          <Button
-            variant='subtle'
-            color='gray'
-            leftSection={<IconEraser size={16} />}
-            onClick={clearSelections}
-            disabled={!enabledTrackIds.length}
-          >
-            Clear
-          </Button>
-        </Group>
+
+          <Group align='flex-end'>
+            {!useApiDetections && !selectedArtifactId && (
+              <FileInput
+                label='Load detection JSONL'
+                placeholder='Upload detections.jsonl'
+                accept='.jsonl,.json,.txt'
+                value={selectedFile}
+                onChange={handleFileChange}
+                leftSection={<IconUpload size={16} />}
+                withAsterisk={!detections.length}
+                clearable
+              />
+            )}
+            <Button
+              variant='light'
+              onClick={selectAllTracks}
+              disabled={!totalTrackCount}
+            >
+              Select all
+            </Button>
+            <Button
+              variant='subtle'
+              color='gray'
+              leftSection={<IconEraser size={16} />}
+              onClick={clearSelections}
+              disabled={!enabledTrackIds.length}
+            >
+              Clear
+            </Button>
+          </Group>
+        </Stack>
 
         {parseError && (
           <Card withBorder p='sm' radius='md' bg='rgba(255,0,0,0.05)'>
@@ -630,9 +815,19 @@ export const VideoAnnotationViewer = ({
           <Badge color='gray' variant='light'>
             Detections: {effectiveDetections.length}
           </Badge>
-          {runId && (
+          {useApiDetections && (
             <Badge color='purple' variant='light'>
               API Data
+            </Badge>
+          )}
+          {selectedArtifactId && !useApiDetections && (
+            <Badge color='orange' variant='light'>
+              Artifact JSONL
+            </Badge>
+          )}
+          {selectedFile && !useApiDetections && !selectedArtifactId && (
+            <Badge color='cyan' variant='light'>
+              Uploaded File
             </Badge>
           )}
         </Group>

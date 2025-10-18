@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, ProjectsGetArtifactContentData, ProjectsGetArtifactContentResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -651,6 +651,27 @@ export class ProjectsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/projects/artifacts/{artifact_id}/download',
+            path: {
+                artifact_id: data.artifactId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Artifact Content
+     * Get artifact content directly (proxied from S3 to avoid CORS issues).
+     * @param data The data for the request.
+     * @param data.artifactId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static getArtifactContent(data: ProjectsGetArtifactContentData): CancelablePromise<ProjectsGetArtifactContentResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/artifacts/{artifact_id}/content',
             path: {
                 artifact_id: data.artifactId
             },

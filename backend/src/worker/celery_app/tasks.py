@@ -29,6 +29,7 @@ from src.common.features.processing.crud import (
     create_artifact,
 )
 from src.common.features.process_video import process_video_with_supervision, VideoAnnotator
+from src.common.features.process_video.src.estimate_distance import DistanceEstimator
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,8 @@ def process_video_task(self, project_id: str, run_id: str):
                 raise RuntimeError("Failed to open downloaded video")
             
             fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             duration_sec = frame_count / fps if fps > 0 else 0
             cap.release()
@@ -287,9 +290,16 @@ def process_video_task(self, project_id: str, run_id: str):
             # Stage 4: Load detections and calculate speeds
             update_run_progress(db=session, run_id=run_uuid, stage="calculating_speeds", percent=70, message="Calculating speeds and preparing data...")
             
+            # Initialize distance estimator for speed calculation
+            distance_estimator = DistanceEstimator(str(homography_path))
+            
             # Read detections from JSONL
             jsonl_path = output_dir / "detections.jsonl"
             detections_data = []
+            
+            # Track vehicle positions for speed calculation
+            vehicle_positions = {}  # {track_id: [(frame, x_norm, y_norm, timestamp), ...]}
+            vehicle_speeds = {}    # {track_id: current_speed_mph}
             
             with open(jsonl_path, 'r') as f:
                 for line in f:
@@ -299,16 +309,72 @@ def process_video_task(self, project_id: str, run_id: str):
                     bbox = detection["bbox_xyxy"]
                     x, y, w, h = bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]
                     
-                    # Calculate world coordinates if homography is available
-                    wx, wy = None, None
-                    if "world_coords" in detection:
-                        wx, wy = detection["world_coords"]
+                    # Calculate world coordinates using homography
+                    center_x = x + w / 2
+                    center_y = y + h / 2
+                    
+                    # Convert to normalized coordinates (0-1 range)
+                    x_norm = center_x / width
+                    y_norm = center_y / height
+                    
+                    # Transform to world coordinates using homography
+                    try:
+                        geo_point = distance_estimator.image_to_geo(x_norm, y_norm)
+                        wx, wy = geo_point.lng, geo_point.lat
+                    except Exception as e:
+                        logger.warning(f"Failed to transform coordinates: {e}")
+                        wx, wy = None, None
+                    
+                    # Calculate speed if we have tracking data
+                    speed_mph = None
+                    track_id = detection.get("track_id")
+                    if track_id is not None:
+                        # Initialize tracking history for this vehicle
+                        if track_id not in vehicle_positions:
+                            vehicle_positions[track_id] = []
+                        
+                        # Add current position
+                        timestamp = detection["time"]
+                        vehicle_positions[track_id].append((detection["frame"], x_norm, y_norm, timestamp))
+                        
+                        # Keep only last 30 frames of history
+                        if len(vehicle_positions[track_id]) > 30:
+                            vehicle_positions[track_id] = vehicle_positions[track_id][-30:]
+                        
+                        # Calculate speed if we have enough history (use 5 frames for smoothing)
+                        history = vehicle_positions[track_id]
+                        if len(history) >= 5:
+                            old_frame, old_x, old_y, old_time = history[-5]
+                            new_frame, new_x, new_y, new_time = history[-1]
+                            
+                            # Calculate distance using homography
+                            try:
+                                distance_meters = distance_estimator.estimate_distance(
+                                    (old_x, old_y), (new_x, new_y)
+                                )
+                                
+                                # Calculate time difference
+                                time_diff = new_time - old_time
+                                
+                                if time_diff > 0:
+                                    # Calculate speed in meters per second
+                                    speed_mps = distance_meters / time_diff
+                                    
+                                    # Convert to miles per hour (1 m/s = 2.23694 mph)
+                                    speed_mph = speed_mps * 2.23694
+                                    
+                                    # Store current speed for this vehicle
+                                    vehicle_speeds[track_id] = speed_mph
+                                    
+                            except Exception as e:
+                                logger.warning(f"Failed to calculate speed for track {track_id}: {e}")
+                                speed_mph = vehicle_speeds.get(track_id)  # Use previous speed if available
                     
                     detection_data = {
                         "project_id": project_uuid,
                         "frame_idx": detection["frame"],
                         "t_ms": int(detection["time"] * 1000),
-                        "track_id": detection.get("track_id"),
+                        "track_id": track_id,
                         "cls": detection["class_name"],
                         "conf": detection["conf"],
                         "x": x,
@@ -318,7 +384,7 @@ def process_video_task(self, project_id: str, run_id: str):
                         "wx": wx,
                         "wy": wy,
                         "extra": {
-                            "speed_mph": detection.get("speed_mph"),
+                            "speed_mph": speed_mph,
                             "class_id": detection["class_id"],
                             "center": detection["center"],
                         }
@@ -495,9 +561,80 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as jsonl_file:
                 jsonl_path = Path(jsonl_file.name)
             
+            # Get video dimensions for coordinate normalization
+            cap = cv2.VideoCapture(str(temp_video_path))
+            if not cap.isOpened():
+                raise RuntimeError("Failed to open video for dimension extraction")
+            
+            video_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            video_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            video_fps = cap.get(cv2.CAP_PROP_FPS)
+            cap.release()
+            
+            # Initialize distance estimator for speed calculation
+            distance_estimator = DistanceEstimator(str(homography_path))
+            
+            # Track vehicle positions for speed calculation
+            vehicle_positions = {}  # {track_id: [(frame, x_norm, y_norm, timestamp), ...]}
+            vehicle_speeds = {}    # {track_id: current_speed_mph}
+            
             # Convert database detections to JSONL format
             with open(jsonl_path, 'w') as f:
                 for detection in detections:
+                    # Calculate center point for tracking
+                    center_x = detection.x + detection.w / 2
+                    center_y = detection.y + detection.h / 2
+                    
+                    # Convert to normalized coordinates (0-1 range)
+                    x_norm = center_x / video_width
+                    y_norm = center_y / video_height
+                    
+                    # Calculate speed if we have tracking data
+                    speed_mph = detection.extra.get("speed_mph")  # Use existing speed if available
+                    track_id = detection.track_id
+                    
+                    if track_id is not None and speed_mph is None:
+                        # Initialize tracking history for this vehicle
+                        if track_id not in vehicle_positions:
+                            vehicle_positions[track_id] = []
+                        
+                        # Add current position
+                        timestamp = detection.t_ms / 1000.0
+                        vehicle_positions[track_id].append((detection.frame_idx, x_norm, y_norm, timestamp))
+                        
+                        # Keep only last 30 frames of history
+                        if len(vehicle_positions[track_id]) > 30:
+                            vehicle_positions[track_id] = vehicle_positions[track_id][-30:]
+                        
+                        # Calculate speed if we have enough history (use 5 frames for smoothing)
+                        history = vehicle_positions[track_id]
+                        if len(history) >= 5:
+                            old_frame, old_x, old_y, old_time = history[-5]
+                            new_frame, new_x, new_y, new_time = history[-1]
+                            
+                            # Calculate distance using homography
+                            try:
+                                distance_meters = distance_estimator.estimate_distance(
+                                    (old_x, old_y), (new_x, new_y)
+                                )
+                                
+                                # Calculate time difference
+                                time_diff = new_time - old_time
+                                
+                                if time_diff > 0:
+                                    # Calculate speed in meters per second
+                                    speed_mps = distance_meters / time_diff
+                                    
+                                    # Convert to miles per hour (1 m/s = 2.23694 mph)
+                                    speed_mph = speed_mps * 2.23694
+                                    
+                                    # Store current speed for this vehicle
+                                    vehicle_speeds[track_id] = speed_mph
+                                    
+                            except Exception as e:
+                                logger.warning(f"Failed to calculate speed for track {track_id}: {e}")
+                                speed_mph = vehicle_speeds.get(track_id)  # Use previous speed if available
+                    
                     # Convert database format to JSONL format expected by VideoAnnotator
                     detection_record = {
                         "video_id": video_asset.uri.split('/')[-1] if video_asset.uri else "video.mp4",
@@ -515,7 +652,7 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
                             detection.y + detection.h
                         ],
                         "center": detection.extra.get("center", [detection.x + detection.w/2, detection.y + detection.h/2]),
-                        "speed_mph": detection.extra.get("speed_mph"),
+                        "speed_mph": speed_mph,
                         "world_coords": [detection.wx, detection.wy] if detection.wx is not None else None,
                     }
                     f.write(json.dumps(detection_record) + "\n")
@@ -526,15 +663,16 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             # Create output video path
             output_video_path = Path(tempfile.mktemp(suffix='.mp4'))
             
-            # Initialize VideoAnnotator with optimal settings
+            # Initialize VideoAnnotator with optimal settings for speed calculation
             annotator = VideoAnnotator(
                 trail_length=10,
-                homography_file=str(homography_path),
-                bbox_smoothing="kalman",
+                homography_file=str(homography_path),  # Enable speed calculation
+                bbox_smoothing="kalman",  # Use Kalman filter for best speed stability
                 bbox_smoothing_window=5,
-                speed_smoothing="moving_average",
+                speed_smoothing="moving_average",  # Use moving average for best speed smoothing
                 smoothing_window=5,
-                tracking_point="bottom_center",
+                tracking_point="bottom_center",  # Use bottom center for more stable tracking
+                debug_speed=False,  # Disable debug output for production
             )
             
             # Render annotated video

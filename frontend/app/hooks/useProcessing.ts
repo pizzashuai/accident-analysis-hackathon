@@ -134,7 +134,10 @@ export function useArtifacts(runId: string, autoRefresh: boolean = false) {
 }
 
 // Hook to get artifact download URL
-export function useArtifactDownloadUrl(artifactId: string) {
+export function useArtifactDownloadUrl(
+  artifactId: string,
+  enabled: boolean = true
+) {
   return useQuery({
     queryKey: ['artifact-download', artifactId],
     queryFn: async () => {
@@ -143,7 +146,24 @@ export function useArtifactDownloadUrl(artifactId: string) {
         artifactId,
       });
     },
-    enabled: !!artifactId,
+    enabled: !!artifactId && enabled,
+  });
+}
+
+// Hook to get artifact content directly (proxied from backend to avoid CORS)
+export function useArtifactContent(
+  artifactId: string,
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: ['artifact-content', artifactId],
+    queryFn: async () => {
+      const { ProjectsService } = await import('../client/sdk.gen');
+      return ProjectsService.getArtifactContent({
+        artifactId,
+      });
+    },
+    enabled: !!artifactId && enabled,
   });
 }
 
@@ -166,5 +186,57 @@ export function useDownloadArtifact() {
 
       return response;
     },
+  });
+}
+
+// Hook to get JSONL artifacts from all processing runs for a project
+export function useProjectJsonlArtifacts(
+  projectId: string,
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: ['project-jsonl-artifacts', projectId],
+    queryFn: async () => {
+      const { ProjectsService } = await import('../client/sdk.gen');
+
+      // Get all processing runs for the project
+      const runsResponse = await ProjectsService.listProcessingRunsRoute({
+        projectId,
+      });
+
+      if (!runsResponse.data || runsResponse.data.length === 0) {
+        return [];
+      }
+
+      // Get artifacts for each completed run
+      const artifactPromises = runsResponse.data
+        .filter((run: any) => run.status === 'completed')
+        .map(async (run: any) => {
+          try {
+            const artifactsResponse = await ProjectsService.listArtifactsRoute({
+              runId: run.id,
+            });
+
+            // Filter for JSONL detection artifacts
+            const jsonlArtifacts =
+              artifactsResponse.data?.filter(
+                (artifact: any) => artifact.kind === 'jsonl_detections'
+              ) || [];
+
+            return jsonlArtifacts.map((artifact: any) => ({
+              ...artifact,
+              runId: run.id,
+              runStartedAt: run.started_at,
+            }));
+          } catch (error) {
+            console.warn(`Failed to fetch artifacts for run ${run.id}:`, error);
+            return [];
+          }
+        });
+
+      const artifactArrays = await Promise.all(artifactPromises);
+      return artifactArrays.flat();
+    },
+    enabled: !!projectId && enabled,
   });
 }
