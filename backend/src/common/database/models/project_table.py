@@ -44,5 +44,10 @@ class Project(Base):
     # Relationships
     user = relationship("User", back_populates="projects")
     video = relationship("MediaAsset", foreign_keys=[video_id], back_populates="project_video")
-    media_assets = relationship("MediaAsset", foreign_keys="MediaAsset.project_id", back_populates="project")
+    media_assets = relationship(
+        "MediaAsset",
+        foreign_keys="MediaAsset.project_id",
+        back_populates="project",
+        passive_deletes=True,
+    )
     location = relationship("ProjectLocation", back_populates="project", uselist=False)
