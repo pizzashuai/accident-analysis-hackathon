@@ -148,6 +148,16 @@ const parseJsonlDetections = (payload: string): DetectionRecord[] => {
       center: Array.isArray(obj.center)
         ? (obj.center.slice(0, 2) as [number, number])
         : undefined,
+      speed_mph:
+        obj.speed_mph === undefined
+          ? undefined
+          : Number.isFinite(Number(obj.speed_mph))
+            ? Number(obj.speed_mph)
+            : undefined,
+      world_coords:
+        Array.isArray(obj.world_coords) && obj.world_coords.length >= 2
+          ? (obj.world_coords.slice(0, 2) as [number, number])
+          : undefined,
     };
 
     parsed.push(record);

@@ -257,12 +257,31 @@ def process_video_task(self, project_id: str, run_id: str):
             if not homography_model:
                 raise ValueError("Homography model not found")
             
-            # Create homography file for process-video pipeline
+            # Create homography file for DistanceEstimator (expects "pairs" format)
+            pairs_data = []
+            logger.info(f"Found {len(homography_session.pairs)} homography pairs")
+            
+            for idx, pair in enumerate(homography_session.pairs):
+                logger.info(f"Pair {idx}: image({pair.image_x_norm:.4f}, {pair.image_y_norm:.4f}) -> geo({pair.map_lat:.6f}, {pair.map_lng:.6f})")
+                pairs_data.append({
+                    "id": idx,
+                    "a": {
+                        "xNorm": pair.image_x_norm,
+                        "yNorm": pair.image_y_norm
+                    },
+                    "b": {
+                        "lat": pair.map_lat,
+                        "lng": pair.map_lng
+                    }
+                })
+            
             homography_data = {
-                "homography_matrix": homography_model.matrix_data,
-                "scale_factor": homography_model.meta.get("scale_factor", 1.0) if homography_model.meta else 1.0,
-                "reference_points": homography_model.meta.get("reference_points", []) if homography_model.meta else [],
+                "pairs": pairs_data,
+                "imagesMeta": homography_model.meta.get("imagesMeta", {}) if homography_model.meta else {},
+                "mapMeta": homography_model.meta.get("mapMeta", {}) if homography_model.meta else {},
             }
+            
+            logger.info(f"Created homography data with {len(pairs_data)} pairs")
             
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as homography_file:
                 json.dump(homography_data, homography_file)
@@ -291,7 +310,9 @@ def process_video_task(self, project_id: str, run_id: str):
             update_run_progress(db=session, run_id=run_uuid, stage="calculating_speeds", percent=70, message="Calculating speeds and preparing data...")
             
             # Initialize distance estimator for speed calculation
+            logger.info(f"Initializing DistanceEstimator with homography file: {homography_path}")
             distance_estimator = DistanceEstimator(str(homography_path))
+            logger.info(f"DistanceEstimator initialized successfully with {len(distance_estimator.homography_data.pairs)} point pairs")
             
             # Read detections from JSONL
             jsonl_path = output_dir / "detections.jsonl"
@@ -366,6 +387,10 @@ def process_video_task(self, project_id: str, run_id: str):
                                     # Store current speed for this vehicle
                                     vehicle_speeds[track_id] = speed_mph
                                     
+                                    # Debug logging for first few speed calculations
+                                    if len(detections_data) < 10:
+                                        logger.info(f"Speed calculated for track {track_id}: {speed_mph:.2f} mph (distance: {distance_meters:.2f}m, time: {time_diff:.3f}s)")
+                                    
                             except Exception as e:
                                 logger.warning(f"Failed to calculate speed for track {track_id}: {e}")
                                 speed_mph = vehicle_speeds.get(track_id)  # Use previous speed if available
@@ -391,17 +416,53 @@ def process_video_task(self, project_id: str, run_id: str):
                     }
                     detections_data.append(detection_data)
             
+            # Debug logging for detections data
+            logger.info(f"Processed {len(detections_data)} detections from JSONL")
+            speed_count = sum(1 for d in detections_data if d["extra"].get("speed_mph") is not None)
+            logger.info(f"Detections with speed data: {speed_count}/{len(detections_data)}")
+            
             # Stage 5: Bulk insert detections to DB
             update_run_progress(db=session, run_id=run_uuid, stage="saving_detections", percent=85, message="Saving detections to database...")
             
             bulk_insert_detections(db=session, run_id=run_uuid, detections_list=detections_data)
             
-            # Stage 6: Upload JSONL artifact to S3
-            update_run_progress(db=session, run_id=run_uuid, stage="uploading_artifacts", percent=90, message="Uploading artifacts to S3...")
+            # Stage 6: Update JSONL file with speed data and upload to S3
+            update_run_progress(db=session, run_id=run_uuid, stage="uploading_artifacts", percent=90, message="Updating JSONL with speed data and uploading to S3...")
             
-            # Upload JSONL file
+            # Update JSONL file with speed data
+            updated_jsonl_path = output_dir / "detections_with_speed.jsonl"
+            speed_updates_count = 0
+            total_detections = 0
+            
+            with open(jsonl_path, 'r') as input_file, open(updated_jsonl_path, 'w') as output_file:
+                for line in input_file:
+                    detection = json.loads(line.strip())
+                    total_detections += 1
+                    
+                    # Find matching detection in our processed data
+                    matching_detection = None
+                    for det_data in detections_data:
+                        if (det_data["frame_idx"] == detection["frame"] and 
+                            det_data["track_id"] == detection.get("track_id")):
+                            matching_detection = det_data
+                            break
+                    
+                    # Add speed data if found
+                    if matching_detection and matching_detection["extra"].get("speed_mph") is not None:
+                        detection["speed_mph"] = matching_detection["extra"]["speed_mph"]
+                        speed_updates_count += 1
+                        
+                        # Debug logging for first few speed updates
+                        if speed_updates_count <= 5:
+                            logger.info(f"Updated detection frame {detection['frame']} track {detection.get('track_id')} with speed {detection['speed_mph']:.2f} mph")
+                    
+                    output_file.write(json.dumps(detection) + "\n")
+            
+            logger.info(f"JSONL update complete: {speed_updates_count}/{total_detections} detections updated with speed data")
+            
+            # Upload updated JSONL file
             jsonl_key = f"projects/{project_id}/runs/{run_id}/detections.jsonl"
-            with open(jsonl_path, 'rb') as jsonl_file:
+            with open(updated_jsonl_path, 'rb') as jsonl_file:
                 upload_result = upload_file_to_s3(
                     jsonl_file,
                     settings.AWS_S3_BUCKET,
@@ -543,11 +604,25 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             if not homography_model:
                 raise ValueError("Homography model not found")
             
-            # Create homography file for VideoAnnotator
+            # Create homography file for DistanceEstimator (expects "pairs" format)
+            pairs_data = []
+            for idx, pair in enumerate(homography_session.pairs):
+                pairs_data.append({
+                    "id": idx,
+                    "a": {
+                        "xNorm": pair.image_x_norm,
+                        "yNorm": pair.image_y_norm
+                    },
+                    "b": {
+                        "lat": pair.map_lat,
+                        "lng": pair.map_lng
+                    }
+                })
+            
             homography_data = {
-                "homography_matrix": homography_model.matrix_data,
-                "scale_factor": homography_model.meta.get("scale_factor", 1.0) if homography_model.meta else 1.0,
-                "reference_points": homography_model.meta.get("reference_points", []) if homography_model.meta else [],
+                "pairs": pairs_data,
+                "imagesMeta": homography_model.meta.get("imagesMeta", {}) if homography_model.meta else {},
+                "mapMeta": homography_model.meta.get("mapMeta", {}) if homography_model.meta else {},
             }
             
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as homography_file:
