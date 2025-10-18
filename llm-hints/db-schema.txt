@@ -1,0 +1,134 @@
+create table project (
+  id             uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references user(id) on delete cascade,
+  title          text not null,
+  description    text,
+  created_at     timestamptz not null default now()
+);
+
+-- 2) Media & location
+create table media_asset (
+  id           uuid primary key default gen_random_uuid(),
+  project_id   uuid not null references project(id) on delete cascade,
+  kind         text not null check (kind in ('video','image','map_snapshot','json')),
+  uri          text not null,            -- s3://... or https://...
+  bytes        bigint,                   -- optional
+  meta         jsonb not null default '{}'::jsonb, -- fps, codec, width/height, etc.
+  created_at   timestamptz not null default now()
+);
+
+-- Optional: one row pointing to the "primary" CCTV video for the project
+alter table project add column video_id uuid references media_asset(id);
+
+-- 3) Project location (address & precise pin)
+create table project_location (
+  project_id   uuid primary key references project(id) on delete cascade,
+  addr_line    text,              -- freeform address
+  lat          double precision,  -- WGS84
+  lon          double precision,
+  source       text not null default 'user' -- 'user' | 'reverse_geocode'
+);
+
+-- 4) Homography: user-picked 2D point correspondences + solved matrix
+-- Each "session" = one set of point pairs (you can keep multiple attempts)
+create table homography_session (
+  id           uuid primary key default gen_random_uuid(),
+  project_id   uuid not null references project(id) on delete cascade,
+  video_frame_asset_id uuid references media_asset(id),  -- screenshot used
+  map_asset_id         uuid references media_asset(id),  -- map snapshot used (optional)
+  status       text not null default 'draft',            -- 'draft' | 'solved' | 'failed'
+  created_at   timestamptz not null default now()
+);
+
+-- Store pairs: (px,py) in video frame  <->  (mx,my) in map image coordinates
+create table homography_pair (
+  id           uuid primary key default gen_random_uuid(),
+  session_id   uuid not null references homography_session(id) on delete cascade,
+  px           double precision not null,
+  py           double precision not null,
+  mx           double precision not null,
+  my           double precision not null,
+  constraint uniq_pair_per_session unique (session_id, px, py, mx, my)
+);
+
+-- Solved 3x3 (row-major) + residuals
+create table homography_model (
+  session_id   uuid primary key references homography_session(id) on delete cascade,
+  h00 double precision not null, h01 double precision not null, h02 double precision not null,
+  h10 double precision not null, h11 double precision not null, h12 double precision not null,
+  h20 double precision not null, h21 double precision not null, h22 double precision not null,
+  reproj_rmse  double precision,
+  solved_at    timestamptz not null default now()
+);
+
+-- 5) Processing run (so you can re-run with different params and keep lineage)
+create table processing_run (
+  id           uuid primary key default gen_random_uuid(),
+  project_id   uuid not null references project(id) on delete cascade,
+  homography_session_id uuid references homography_session(id),
+  params       jsonb not null default '{}'::jsonb, -- detector/tracker params, thresholds, etc.
+  started_at   timestamptz not null default now(),
+  finished_at  timestamptz
+);
+
+-- 6) Detections & tracks
+-- Use milliseconds from video start for time; store frame if helpful.
+-- If volume is big, consider partitioning by project_id or processing_run_id.
+create table detection (
+  id           bigserial primary key,
+  project_id   uuid not null references project(id) on delete cascade,
+  run_id       uuid references processing_run(id) on delete set null,
+  frame_idx    int not null,
+  t_ms         int not null,             -- time in ms
+  track_id     int,                      -- tracker-assigned id (nullable for single detections)
+  cls          text not null,            -- 'vehicle','pedestrian','signal', ...
+  conf         real,                     -- detector confidence
+  -- pixel-space bbox (video frame)
+  x            real not null,            -- left
+  y            real not null,            -- top
+  w            real not null,
+  h            real not null,
+  -- world-ish (optional): projected via homography if available (meters or arbitrary plane units)
+  wx           double precision,
+  wy           double precision,
+  extra        jsonb not null default '{}'::jsonb -- speed_est, color, make_model, etc.
+);
+
+create index detection_project_time_idx on detection(project_id, t_ms);
+create index detection_project_track_idx on detection(project_id, track_id);
+create index detection_run_idx on detection(run_id);
+create index detection_extra_gin on detection using gin (extra jsonb_path_ops);
+
+-- 7) User-selected relevant tracks (used to filter/annotate only what matters)
+create table selected_track (
+  project_id   uuid not null references project(id) on delete cascade,
+  track_id     int not null,
+  note         text,
+  primary key (project_id, track_id)
+);
+
+-- 8) Events inferred by backend (sortable, timestamped, tied optionally to a track)
+create table event (
+  id           bigserial primary key,
+  project_id   uuid not null references project(id) on delete cascade,
+  run_id       uuid references processing_run(id) on delete set null,
+  t_ms         int not null,
+  kind         text not null,   -- e.g., 'brake','lane_change','collision','red_light','stop','yield'
+  track_id     int,             -- nullable; some events span multiple tracks; use extra for links
+  summary      text not null,   -- human-readable one-liner
+  details      jsonb not null default '{}'::jsonb
+);
+
+create index event_project_time_idx on event(project_id, t_ms);
+create index event_kind_idx on event(kind);
+
+-- 9) Artifacts (exports, JSONL paths, thumbnails, reports)
+create table artifact (
+  id           uuid primary key default gen_random_uuid(),
+  project_id   uuid not null references project(id) on delete cascade,
+  run_id       uuid references processing_run(id) on delete set null,
+  kind         text not null check (kind in ('jsonl_detections','csv_detections','annotated_video','report','debug')),
+  uri          text not null,          -- s3://... or https://... (don’t stuff giant blobs in DB)
+  meta         jsonb not null default '{}'::jsonb,
+  created_at   timestamptz not null default now()
+);

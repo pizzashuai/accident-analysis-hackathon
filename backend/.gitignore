@@ -1,0 +1,17 @@
+__pycache__
+app.egg-info
+*.pyc
+.mypy_cache
+.coverage
+htmlcov
+.cache
+.venv
+.uv-cache
+.env
+.ruff_cache
+/.ruff_cache/
+**/.mypy_cache/
+*/.coverage/
+/.htmlcov/
+./.venv/
+*.pid

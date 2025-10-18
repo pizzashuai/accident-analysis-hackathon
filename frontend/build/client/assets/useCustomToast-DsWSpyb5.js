@@ -1,0 +1,1 @@
+import{w as r}from"./QueryClientProvider-rFKXxwTF.js";const n=()=>({showToast:(s,o="info")=>{r.show({title:o==="success"?"Success!":o==="error"?"Something went wrong!":"Info",message:s,color:o==="success"?"green":o==="error"?"red":"blue"})}});export{n as u};

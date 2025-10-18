@@ -1,0 +1,104 @@
+services:
+  db:
+    restart: 'no'
+    ports:
+      - '5432:5432'
+
+  adminer:
+    restart: 'no'
+    ports:
+      - '8080:8080'
+
+  backend:
+    restart: 'no'
+    ports:
+      - '8000:8000'
+    build:
+      context: ./backend
+      dockerfile: src/api/Dockerfile
+    # command: sleep infinity  # Infinite loop to keep container alive doing nothing
+    command:
+      [
+        'uvicorn',
+        'src.api.main:app',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        '8000',
+        '--reload',
+      ]
+    develop:
+      watch:
+        - path: ./backend
+          action: sync
+          target: /app
+          ignore:
+            - ./backend/.venv
+            - .venv
+        - path: ./backend/pyproject.toml
+          action: rebuild
+    # TODO: remove once coverage is done locally
+    volumes:
+      - ./backend/htmlcov:/app/htmlcov
+    environment:
+      SMTP_HOST: 'mailcatcher'
+      SMTP_PORT: '1025'
+      SMTP_TLS: 'false'
+      EMAILS_FROM_EMAIL: 'noreply@example.com'
+
+  mailcatcher:
+    image: schickling/mailcatcher
+    ports:
+      - '1080:1080'
+      - '1025:1025'
+
+  redis:
+    image: redis:7-alpine
+    restart: 'no'
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  worker:
+    restart: 'no'
+    build:
+      context: ./backend
+      dockerfile: src/worker/Dockerfile
+    depends_on:
+      - redis
+      - db
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-app}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changethis}
+      - REDIS_URL=redis://redis:6379/0
+      - PROJECT_NAME=${PROJECT_NAME:-Full Stack FastAPI Template}
+      - FIRST_SUPERUSER=${FIRST_SUPERUSER:-admin@example.com}
+      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD:-changethis}
+    develop:
+      watch:
+        - path: ./backend
+          action: sync
+          target: /app
+          ignore:
+            - ./backend/.venv
+            - .venv
+        - path: ./backend/pyproject.toml
+          action: rebuild
+
+  frontend:
+    restart: 'no'
+    ports:
+      - '5173:80'
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=http://localhost:8000
+        - NODE_ENV=development
+
+volumes:
+  redis-data:
