@@ -84,6 +84,245 @@ export const HTTPValidationErrorSchema = {
     title: 'HTTPValidationError'
 } as const;
 
+export const HomographyModelPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        session_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Session Id'
+        },
+        matrix_data: {
+            items: {
+                items: {
+                    type: 'number'
+                },
+                type: 'array'
+            },
+            type: 'array',
+            title: 'Matrix Data'
+        },
+        reprojection_error: {
+            anyOf: [
+                {
+                    type: 'number'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Reprojection Error'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        meta: {
+            anyOf: [
+                {
+                    additionalProperties: true,
+                    type: 'object'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Meta'
+        }
+    },
+    type: 'object',
+    required: ['id', 'session_id', 'matrix_data', 'reprojection_error', 'created_at', 'meta'],
+    title: 'HomographyModelPublic',
+    description: 'Schema for homography model response'
+} as const;
+
+export const HomographyPairCreateSchema = {
+    properties: {
+        image_x_norm: {
+            type: 'number',
+            maximum: 1,
+            minimum: 0,
+            title: 'Image X Norm',
+            description: 'Normalized x coordinate (0-1)'
+        },
+        image_y_norm: {
+            type: 'number',
+            maximum: 1,
+            minimum: 0,
+            title: 'Image Y Norm',
+            description: 'Normalized y coordinate (0-1)'
+        },
+        map_lat: {
+            type: 'number',
+            title: 'Map Lat',
+            description: 'Latitude coordinate'
+        },
+        map_lng: {
+            type: 'number',
+            title: 'Map Lng',
+            description: 'Longitude coordinate'
+        },
+        order_idx: {
+            type: 'integer',
+            title: 'Order Idx',
+            description: 'Display order index',
+            default: 0
+        }
+    },
+    type: 'object',
+    required: ['image_x_norm', 'image_y_norm', 'map_lat', 'map_lng'],
+    title: 'HomographyPairCreate',
+    description: 'Schema for creating a homography point pair'
+} as const;
+
+export const HomographyPairPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        session_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Session Id'
+        },
+        image_x_norm: {
+            type: 'number',
+            title: 'Image X Norm'
+        },
+        image_y_norm: {
+            type: 'number',
+            title: 'Image Y Norm'
+        },
+        map_lat: {
+            type: 'number',
+            title: 'Map Lat'
+        },
+        map_lng: {
+            type: 'number',
+            title: 'Map Lng'
+        },
+        order_idx: {
+            type: 'integer',
+            title: 'Order Idx'
+        }
+    },
+    type: 'object',
+    required: ['id', 'session_id', 'image_x_norm', 'image_y_norm', 'map_lat', 'map_lng', 'order_idx'],
+    title: 'HomographyPairPublic',
+    description: 'Schema for homography point pair response'
+} as const;
+
+export const HomographySessionPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Project Id'
+        },
+        screenshot_asset_id: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'uuid'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Screenshot Asset Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        created_at: {
+            type: 'string',
+            format: 'date-time',
+            title: 'Created At'
+        },
+        solved_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Solved At'
+        },
+        pairs: {
+            items: {
+                '$ref': '#/components/schemas/HomographyPairPublic'
+            },
+            type: 'array',
+            title: 'Pairs',
+            default: []
+        },
+        model: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/HomographyModelPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        }
+    },
+    type: 'object',
+    required: ['id', 'project_id', 'screenshot_asset_id', 'status', 'created_at', 'solved_at'],
+    title: 'HomographySessionPublic',
+    description: 'Schema for homography session response'
+} as const;
+
+export const HomographySolveResponseSchema = {
+    properties: {
+        success: {
+            type: 'boolean',
+            title: 'Success'
+        },
+        model: {
+            anyOf: [
+                {
+                    '$ref': '#/components/schemas/HomographyModelPublic'
+                },
+                {
+                    type: 'null'
+                }
+            ]
+        },
+        error_message: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Error Message'
+        }
+    },
+    type: 'object',
+    required: ['success'],
+    title: 'HomographySolveResponse',
+    description: 'Schema for homography solve response'
+} as const;
+
 export const MediaAssetPublicSchema = {
     properties: {
         id: {

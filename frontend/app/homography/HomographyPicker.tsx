@@ -11,9 +11,9 @@ import {
   Card,
   Badge,
   Flex,
-  CopyButton,
   Alert,
   TextInput,
+  Loader,
 } from '@mantine/core';
 import { Dropzone, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import {
@@ -21,13 +21,23 @@ import {
   IconX,
   IconPhoto,
   IconTrash,
-  IconCopy,
-  IconCheck,
-  IconDownload,
-  IconSearch,
   IconMapPin,
+  IconSearch,
+  IconCamera,
+  IconCheck,
 } from '@tabler/icons-react';
 import { MapDisplay } from './MapDisplay';
+import { HomographyMatrixDisplay } from './HomographyMatrixDisplay';
+import {
+  useHomographySession,
+  useCreateHomographySession,
+  useUpdateHomographyPairs,
+  useDeleteHomographyPair,
+  useSolveHomography,
+  useExtractFrame,
+} from '~/hooks/useHomography';
+import { useCustomToast } from '~/hooks/useCustomToast';
+import type { HomographySessionPublic, HomographyPairPublic } from '~/client';
 
 interface Point {
   xNorm: number;
@@ -42,7 +52,7 @@ interface LatLngPoint {
 }
 
 interface PointPair {
-  id: number;
+  id: string;
   a: Point;
   b: LatLngPoint;
 }
@@ -59,7 +69,15 @@ interface ImageMetrics {
   offsetY: number;
 }
 
-export function HomographyPicker() {
+interface HomographyPickerProps {
+  projectId: string;
+  existingSession?: HomographySessionPublic;
+}
+
+export function HomographyPicker({
+  projectId,
+  existingSession,
+}: HomographyPickerProps) {
   const [imageA, setImageA] = useState<ImageData | null>(null);
   const [imageLocation, setImageLocation] = useState<string>(
     '800 140th Ave NE, Bellevue, WA'
@@ -72,11 +90,12 @@ export function HomographyPicker() {
   const [pickingMode, setPickingMode] = useState(false);
   const [pairs, setPairs] = useState<PointPair[]>([]);
   const [pendingPointA, setPendingPointA] = useState<Point | null>(null);
-  const [hoveredPairId, setHoveredPairId] = useState<number | null>(null);
+  const [hoveredPairId, setHoveredPairId] = useState<string | null>(null);
   const [currentCoordA, setCurrentCoordA] = useState<Point | null>(null);
   const [currentCoordB, setCurrentCoordB] = useState<LatLngPoint | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [mapKey, setMapKey] = useState(0); // Key to force map re-render
+  const [saving, setSaving] = useState(false);
 
   const imageRefA = useRef<HTMLImageElement>(null);
   const containerRefA = useRef<HTMLDivElement>(null);
@@ -87,6 +106,41 @@ export function HomographyPicker() {
     offsetX: 0,
     offsetY: 0,
   });
+
+  const { showToast } = useCustomToast();
+
+  // Backend integration hooks
+  const {
+    data: session,
+    isLoading: sessionLoading,
+    refetch: refetchSession,
+  } = useHomographySession(projectId);
+  const createSession = useCreateHomographySession();
+  const updatePairs = useUpdateHomographyPairs();
+  const deletePair = useDeleteHomographyPair();
+  const solveHomography = useSolveHomography();
+  const extractFrame = useExtractFrame();
+
+  // Load existing session data on mount
+  useEffect(() => {
+    if (session) {
+      // Convert backend pairs to frontend format
+      const convertedPairs: PointPair[] = session.pairs.map(
+        (pair: HomographyPairPublic) => ({
+          id: pair.id,
+          a: { xNorm: pair.image_x_norm, yNorm: pair.image_y_norm },
+          b: { lat: pair.map_lat, lng: pair.map_lng },
+        })
+      );
+      setPairs(convertedPairs);
+
+      // Set screenshot if available
+      if (session.screenshot_asset_id) {
+        // TODO: Load screenshot from media asset
+        // For now, we'll show the extract frame button
+      }
+    }
+  }, [session]);
 
   // Update metrics when images load or window resizes
   const updateMetrics = useCallback(() => {
@@ -137,59 +191,36 @@ export function HomographyPicker() {
     const offsetX = e.nativeEvent.offsetX;
     const offsetY = e.nativeEvent.offsetY;
 
-    console.log('[DEBUG] Image A clicked', {
-      pickingMode,
-      pendingPointA,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      offsetX,
-      offsetY,
-      metricsA,
-    });
-
     if (!pickingMode || pendingPointA) {
-      console.log(
-        '[DEBUG] Ignoring click on A - pickingMode:',
-        pickingMode,
-        'pendingPointA exists:',
-        !!pendingPointA
-      );
       return;
     }
 
     const point = normalizeCoordinates(offsetX, offsetY, metricsA);
-    console.log('[DEBUG] Point A set:', point);
     setPendingPointA(point);
     setCurrentCoordA(point);
   };
 
   const handleMapClick = (latLng: LatLngPoint) => {
-    console.log('[DEBUG] Map clicked', {
-      pickingMode,
-      pendingPointA,
-      lat: latLng.lat,
-      lng: latLng.lng,
-    });
-
     if (!pickingMode) {
-      console.log('[DEBUG] Ignoring click on map - not in picking mode');
       return;
     }
 
     if (pendingPointA) {
       // Complete the pair
       const newPair: PointPair = {
-        id: Date.now(),
+        id: Date.now().toString(),
         a: pendingPointA,
         b: latLng,
       };
-      console.log('[DEBUG] Pair completed:', newPair);
-      setPairs((prev) => [...prev, newPair]);
+      const updatedPairs = [...pairs, newPair];
+      setPairs(updatedPairs);
       setPendingPointA(null);
       setCurrentCoordA(null);
       setCurrentCoordB(null);
+
+      // Auto-save pairs to backend
+      savePairsToBackend(updatedPairs);
     } else {
-      console.log('[DEBUG] No pending point A, just updating current coord B');
       setCurrentCoordB(latLng);
     }
   };
@@ -208,50 +239,78 @@ export function HomographyPicker() {
   };
 
   const startNewPair = () => {
-    console.log('[DEBUG] Starting new pair - resetting pendingPointA');
     setPendingPointA(null);
     setCurrentCoordA(null);
     setCurrentCoordB(null);
   };
 
-  const deletePair = (id: number) => {
-    setPairs((prev) => prev.filter((p) => p.id !== id));
-  };
+  const deletePairLocal = async (id: string) => {
+    const updatedPairs = pairs.filter((p) => p.id !== id);
+    setPairs(updatedPairs);
 
-  const exportData = () => {
-    const data = {
-      pairs: pairs.map((pair, index) => ({
-        id: index + 1,
-        a: { xNorm: pair.a.xNorm, yNorm: pair.a.yNorm },
-        b: { lat: pair.b.lat, lng: pair.b.lng },
-      })),
-      imagesMeta: {
-        imageA: { name: imageA?.file.name, size: imageA?.file.size },
-        metricsA,
-      },
-      mapMeta: {
-        center: mapCenter,
-        zoom: mapZoom,
-      },
-    };
-    return JSON.stringify(data, null, 2);
-  };
-
-  const importData = (jsonString: string) => {
+    // Delete from backend
     try {
-      const data = JSON.parse(jsonString);
-      const importedPairs: PointPair[] = data.pairs.map((p: any) => ({
-        id: Date.now() + p.id,
-        a: { xNorm: p.a.xNorm, yNorm: p.a.yNorm },
-        b: { lat: p.b.lat, lng: p.b.lng },
+      await deletePair.mutateAsync(id);
+      showToast('Pair deleted successfully', 'success');
+    } catch (error) {
+      showToast('Failed to delete pair', 'error');
+      // Revert local change
+      setPairs(pairs);
+    }
+  };
+
+  const savePairsToBackend = async (pairsToSave: PointPair[]) => {
+    if (!session) return;
+
+    setSaving(true);
+    try {
+      const pairsData = pairsToSave.map((pair, index) => ({
+        image_x_norm: pair.a.xNorm,
+        image_y_norm: pair.a.yNorm,
+        map_lat: pair.b.lat,
+        map_lng: pair.b.lng,
+        order_idx: index,
       }));
-      setPairs(importedPairs);
-      if (data.mapMeta) {
-        setMapCenter(data.mapMeta.center);
-        setMapZoom(data.mapMeta.zoom);
+
+      await updatePairs.mutateAsync({
+        sessionId: session.id,
+        pairsData,
+      });
+
+      showToast('Pairs saved successfully', 'success');
+    } catch (error) {
+      showToast('Failed to save pairs', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSolveHomography = async () => {
+    if (!session) return;
+
+    try {
+      const result = await solveHomography.mutateAsync(session.id);
+      if (result.success) {
+        showToast('Homography solved successfully!', 'success');
+        refetchSession();
+      } else {
+        showToast(
+          result.error_message || 'Failed to solve homography',
+          'error'
+        );
       }
     } catch (error) {
-      console.error('Failed to import data:', error);
+      showToast('Failed to solve homography', 'error');
+    }
+  };
+
+  const handleExtractFrame = async () => {
+    try {
+      await extractFrame.mutateAsync(projectId);
+      showToast('Frame extracted successfully', 'success');
+      refetchSession();
+    } catch (error) {
+      showToast('Failed to extract frame', 'error');
     }
   };
 
@@ -271,15 +330,17 @@ export function HomographyPicker() {
         const location = data.results[0].geometry.location;
         setMapCenter({ lat: location.lat, lng: location.lng });
         setMapZoom(18);
-        setMapKey((prev) => prev + 1); // Force map re-render with new center
+        setMapKey((prev) => prev + 1);
       } else {
-        console.error('No results found for address:', imageLocation);
-        alert('Location not found. Please try a different address.');
+        showToast(
+          'Location not found. Please try a different address.',
+          'error'
+        );
       }
     } catch (error) {
-      console.error('Geocoding error:', error);
-      alert(
-        'Failed to geocode address. Please check your internet connection.'
+      showToast(
+        'Failed to geocode address. Please check your internet connection.',
+        'error'
       );
     } finally {
       setGeocoding(false);
@@ -287,14 +348,86 @@ export function HomographyPicker() {
   };
 
   const recenterMap = () => {
-    setMapKey((prev) => prev + 1); // Force map to re-center to current mapCenter
+    setMapKey((prev) => prev + 1);
   };
 
   const bothImagesLoaded = imageA;
   const hasMinimumPairs = pairs.length >= 4;
+  const isSolved = session?.status === 'solved';
+
+  if (sessionLoading) {
+    return (
+      <Stack align='center' gap='md' py='xl'>
+        <Loader size='lg' />
+        <Text c='dimmed'>Loading homography session...</Text>
+      </Stack>
+    );
+  }
 
   return (
     <Stack gap='lg'>
+      {/* Session Status */}
+      <Paper p='md' withBorder>
+        <Group justify='space-between' align='center'>
+          <Group gap='xs'>
+            <Text fw={600} size='md'>
+              Homography Configuration
+            </Text>
+            <Badge
+              color={
+                isSolved
+                  ? 'green'
+                  : session?.status === 'draft'
+                    ? 'yellow'
+                    : 'gray'
+              }
+              variant='light'
+            >
+              {isSolved
+                ? 'Solved'
+                : session?.status === 'draft'
+                  ? 'Draft'
+                  : 'Not configured'}
+            </Badge>
+          </Group>
+
+          {!session && (
+            <Button
+              onClick={() => createSession.mutate(projectId)}
+              loading={createSession.isPending}
+              leftSection={<IconCheck size={16} />}
+            >
+              Initialize Session
+            </Button>
+          )}
+        </Group>
+      </Paper>
+
+      {/* Extract Frame Section */}
+      {session && !imageA && (
+        <Paper p='md' withBorder>
+          <Stack gap='sm'>
+            <Text fw={600} size='sm'>
+              Screenshot
+            </Text>
+            <Group gap='xs'>
+              <Button
+                onClick={handleExtractFrame}
+                loading={extractFrame.isPending}
+                leftSection={<IconCamera size={16} />}
+                variant='light'
+              >
+                Extract Video Frame
+              </Button>
+              <Text size='sm' c='dimmed'>
+                Extract the first frame from your uploaded video, or upload a
+                screenshot manually below.
+              </Text>
+            </Group>
+          </Stack>
+        </Paper>
+      )}
+
       {/* Upload CCTV Image */}
       <Paper p='md' withBorder>
         <Stack gap='sm'>
@@ -417,6 +550,9 @@ export function HomographyPicker() {
             : 'Click "New Pair" then click a point on CCTV (A) image'}
         </Alert>
       )}
+
+      {/* Save Status */}
+      {saving && <Alert color='blue'>Saving pairs to backend...</Alert>}
 
       {/* Side-by-side Image and Map */}
       {bothImagesLoaded && (
@@ -600,7 +736,8 @@ export function HomographyPicker() {
                       <ActionIcon
                         color='red'
                         variant='subtle'
-                        onClick={() => deletePair(pair.id)}
+                        onClick={() => deletePairLocal(pair.id)}
+                        loading={deletePair.isPending}
                       >
                         <IconTrash size={16} />
                       </ActionIcon>
@@ -613,48 +750,35 @@ export function HomographyPicker() {
         </Paper>
       )}
 
-      {/* Export Section */}
-      {hasMinimumPairs && (
+      {/* Solve Homography Section */}
+      {hasMinimumPairs && !isSolved && (
         <Paper p='md' withBorder>
           <Stack gap='sm'>
-            <Text fw={600}>Review / Export</Text>
+            <Text fw={600}>Solve Homography</Text>
             <Text size='sm' c='dimmed'>
-              {pairs.length} point pairs captured. Export data for homography
+              {pairs.length} point pairs captured. Solve the homography
               transformation.
             </Text>
-            <Group>
-              <CopyButton value={exportData()}>
-                {({ copied, copy }) => (
-                  <Button
-                    leftSection={
-                      copied ? <IconCheck size={16} /> : <IconCopy size={16} />
-                    }
-                    color={copied ? 'teal' : 'blue'}
-                    onClick={copy}
-                  >
-                    {copied ? 'Copied!' : 'Copy to Clipboard'}
-                  </Button>
-                )}
-              </CopyButton>
-              <Button
-                leftSection={<IconDownload size={16} />}
-                variant='light'
-                onClick={() => {
-                  const blob = new Blob([exportData()], {
-                    type: 'application/json',
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'homography-points.json';
-                  a.click();
-                }}
-              >
-                Download JSON
-              </Button>
-            </Group>
+            <Button
+              onClick={handleSolveHomography}
+              loading={solveHomography.isPending}
+              leftSection={<IconCheck size={16} />}
+              color='green'
+            >
+              Solve Homography
+            </Button>
           </Stack>
         </Paper>
+      )}
+
+      {/* Show solved matrix */}
+      {isSolved && session?.model && (
+        <HomographyMatrixDisplay
+          matrix={session.model.matrix_data}
+          error={session.model.reprojection_error}
+          inlierCount={session.model.meta?.inlier_count}
+          totalPairs={session.model.meta?.total_pairs}
+        />
       )}
     </Stack>
   );

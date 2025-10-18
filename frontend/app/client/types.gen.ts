@@ -13,6 +13,82 @@ export type Body_projects_upload_video = {
     file: (Blob | File);
 };
 
+/**
+ * Schema for homography model response
+ */
+export type HomographyModelPublic = {
+    id: string;
+    session_id: string;
+    matrix_data: Array<Array<(number)>>;
+    reprojection_error: (number | null);
+    created_at: string;
+    meta: ({
+    [key: string]: unknown;
+} | null);
+};
+
+/**
+ * Schema for creating a homography point pair
+ */
+export type HomographyPairCreate = {
+    /**
+     * Normalized x coordinate (0-1)
+     */
+    image_x_norm: number;
+    /**
+     * Normalized y coordinate (0-1)
+     */
+    image_y_norm: number;
+    /**
+     * Latitude coordinate
+     */
+    map_lat: number;
+    /**
+     * Longitude coordinate
+     */
+    map_lng: number;
+    /**
+     * Display order index
+     */
+    order_idx?: number;
+};
+
+/**
+ * Schema for homography point pair response
+ */
+export type HomographyPairPublic = {
+    id: string;
+    session_id: string;
+    image_x_norm: number;
+    image_y_norm: number;
+    map_lat: number;
+    map_lng: number;
+    order_idx: number;
+};
+
+/**
+ * Schema for homography session response
+ */
+export type HomographySessionPublic = {
+    id: string;
+    project_id: string;
+    screenshot_asset_id: (string | null);
+    status: string;
+    created_at: string;
+    solved_at: (string | null);
+    pairs?: Array<HomographyPairPublic>;
+    model?: (HomographyModelPublic | null);
+};
+
+/**
+ * Schema for homography solve response
+ */
+export type HomographySolveResponse = {
+    success: boolean;
+    model?: (HomographyModelPublic | null);
+    error_message?: (string | null);
+};
+
 export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
@@ -227,6 +303,62 @@ export type ProjectsSetProjectLocationData = {
 };
 
 export type ProjectsSetProjectLocationResponse = (ProjectLocationPublic);
+
+export type ProjectsExtractVideoFrameData = {
+    projectId: string;
+};
+
+export type ProjectsExtractVideoFrameResponse = (MediaAssetPublic);
+
+export type ProjectsCreateHomographySessionData = {
+    projectId: string;
+};
+
+export type ProjectsCreateHomographySessionResponse = (HomographySessionPublic);
+
+export type ProjectsGetHomographySessionData = {
+    projectId: string;
+};
+
+export type ProjectsGetHomographySessionResponse = (HomographySessionPublic);
+
+export type ProjectsAddHomographyPairData = {
+    requestBody: HomographyPairCreate;
+    sessionId: string;
+};
+
+export type ProjectsAddHomographyPairResponse = (HomographyPairPublic);
+
+export type ProjectsUpdateHomographyPairsData = {
+    requestBody: Array<HomographyPairCreate>;
+    sessionId: string;
+};
+
+export type ProjectsUpdateHomographyPairsResponse = (Array<HomographyPairPublic>);
+
+export type ProjectsDeleteHomographyPairData = {
+    pairId: string;
+};
+
+export type ProjectsDeleteHomographyPairResponse = (unknown);
+
+export type ProjectsSolveHomographySessionData = {
+    sessionId: string;
+};
+
+export type ProjectsSolveHomographySessionResponse = (HomographySolveResponse);
+
+export type ProjectsGetHomographyModelData = {
+    sessionId: string;
+};
+
+export type ProjectsGetHomographyModelResponse = (HomographyModelPublic);
+
+export type ProjectsExportHomographySessionData = {
+    sessionId: string;
+};
+
+export type ProjectsExportHomographySessionResponse = (unknown);
 
 export type UsersReadUsersData = {
     limit?: number;

@@ -27,6 +27,7 @@ import { Link, useNavigate } from 'react-router';
 import { CreateProjectModal } from '~/components/Projects/CreateProjectModal';
 import { VideoUpload } from '~/components/Projects/VideoUpload';
 import { LocationPicker } from '~/components/Projects/LocationPicker';
+import { HomographyPicker } from '~/homography';
 import {
   useProject,
   useDeleteProject,
@@ -241,6 +242,22 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                   Location set
                 </Badge>
               )}
+              {project.homography_session && (
+                <Badge
+                  color={
+                    project.homography_session.status === 'solved'
+                      ? 'green'
+                      : 'yellow'
+                  }
+                  variant='light'
+                  leftSection={<IconPhoto size={12} />}
+                >
+                  Homography{' '}
+                  {project.homography_session.status === 'solved'
+                    ? 'solved'
+                    : 'configured'}
+                </Badge>
+              )}
             </Group>
           </Stack>
         </Card>
@@ -251,6 +268,7 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
             <Tabs.Tab value='overview'>Overview</Tabs.Tab>
             <Tabs.Tab value='video'>Video</Tabs.Tab>
             <Tabs.Tab value='location'>Location</Tabs.Tab>
+            <Tabs.Tab value='homography'>Homography</Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value='overview' pt='md'>
@@ -504,6 +522,23 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                     : null
                 }
                 onLocationSet={handleLocationSet}
+              />
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value='homography' pt='md'>
+            <Stack gap='md'>
+              <Text size='lg' fw={500}>
+                Homography Configuration
+              </Text>
+              <Text size='sm' c='dimmed'>
+                Configure point correspondences between your CCTV video and map
+                coordinates for accurate speed calculation.
+              </Text>
+
+              <HomographyPicker
+                projectId={params.projectId}
+                existingSession={project.homography_session}
               />
             </Stack>
           </Tabs.Panel>

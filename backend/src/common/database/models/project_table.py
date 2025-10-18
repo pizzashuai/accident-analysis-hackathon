@@ -51,3 +51,4 @@ class Project(Base):
         passive_deletes=True,
     )
     location = relationship("ProjectLocation", back_populates="project", uselist=False)
+    homography_session = relationship("HomographySession", back_populates="project", uselist=False)

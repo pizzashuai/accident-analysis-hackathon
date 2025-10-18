@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -278,6 +278,201 @@ export class ProjectsService {
             },
             body: data.requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Extract Video Frame
+     * Extract first frame from project video and save as media asset.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns MediaAssetPublic Successful Response
+     * @throws ApiError
+     */
+    public static extractVideoFrame(data: ProjectsExtractVideoFrameData): CancelablePromise<ProjectsExtractVideoFrameResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/extract-frame',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Create Homography Session
+     * Create or get active homography session for project.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns HomographySessionPublic Successful Response
+     * @throws ApiError
+     */
+    public static createHomographySession(data: ProjectsCreateHomographySessionData): CancelablePromise<ProjectsCreateHomographySessionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/{project_id}/homography/session',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Homography Session
+     * Get current homography session for project.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @returns HomographySessionPublic Successful Response
+     * @throws ApiError
+     */
+    public static getHomographySession(data: ProjectsGetHomographySessionData): CancelablePromise<ProjectsGetHomographySessionResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/{project_id}/homography/session',
+            path: {
+                project_id: data.projectId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Add Homography Pair
+     * Add point pair to homography session.
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @param data.requestBody
+     * @returns HomographyPairPublic Successful Response
+     * @throws ApiError
+     */
+    public static addHomographyPair(data: ProjectsAddHomographyPairData): CancelablePromise<ProjectsAddHomographyPairResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/homography/sessions/{session_id}/pairs',
+            path: {
+                session_id: data.sessionId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Update Homography Pairs
+     * Replace all pairs in homography session (bulk update).
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @param data.requestBody
+     * @returns HomographyPairPublic Successful Response
+     * @throws ApiError
+     */
+    public static updateHomographyPairs(data: ProjectsUpdateHomographyPairsData): CancelablePromise<ProjectsUpdateHomographyPairsResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/projects/homography/sessions/{session_id}/pairs',
+            path: {
+                session_id: data.sessionId
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Homography Pair
+     * Delete specific homography pair.
+     * @param data The data for the request.
+     * @param data.pairId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteHomographyPair(data: ProjectsDeleteHomographyPairData): CancelablePromise<ProjectsDeleteHomographyPairResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/projects/homography/pairs/{pair_id}',
+            path: {
+                pair_id: data.pairId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Solve Homography Session
+     * Solve homography for session.
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @returns HomographySolveResponse Successful Response
+     * @throws ApiError
+     */
+    public static solveHomographySession(data: ProjectsSolveHomographySessionData): CancelablePromise<ProjectsSolveHomographySessionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/projects/homography/sessions/{session_id}/solve',
+            path: {
+                session_id: data.sessionId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Homography Model
+     * Get solved homography model.
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @returns HomographyModelPublic Successful Response
+     * @throws ApiError
+     */
+    public static getHomographyModel(data: ProjectsGetHomographyModelData): CancelablePromise<ProjectsGetHomographyModelResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/homography/sessions/{session_id}/model',
+            path: {
+                session_id: data.sessionId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Export Homography Session
+     * Export homography data in process-video compatible format.
+     * @param data The data for the request.
+     * @param data.sessionId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static exportHomographySession(data: ProjectsExportHomographySessionData): CancelablePromise<ProjectsExportHomographySessionResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/projects/homography/sessions/{session_id}/export',
+            path: {
+                session_id: data.sessionId
+            },
             errors: {
                 422: 'Validation Error'
             }

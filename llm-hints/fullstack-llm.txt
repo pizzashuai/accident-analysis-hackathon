@@ -1,3 +1,5 @@
 After making api changes in ./backend, run "./scripts/generate-client.sh" to update api as ts client in /frontend.
 Use the updated react client to implement and test new features.
 Do not create ts client by yourself, follow useAuth.ts example to use ./frontend/app/client
+
+/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process-video has the video processing related code to be re-used

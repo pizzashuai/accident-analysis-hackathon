@@ -2,6 +2,9 @@ import logging
 import tempfile
 import uuid
 from pathlib import Path
+import cv2
+import numpy as np
+from src.common.database.models.media_asset_table import MediaAsset
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -23,6 +26,22 @@ from src.common.features.project import (
     list_projects,
     update_project,
     upsert_project_location,
+)
+from src.common.features.homography import (
+    HomographyPairCreate,
+    HomographyPairPublic,
+    HomographySessionCreate,
+    HomographySessionPublic,
+    HomographySolveResponse,
+    HomographyModelPublic,
+    create_session,
+    get_or_create_session_for_project,
+    get_session_with_relations,
+    add_pair,
+    update_pairs,
+    delete_pair,
+    solve_homography,
+    export_homography_data,
 )
 from src.common.features.storage import (
     extract_video_metadata,
@@ -249,7 +268,6 @@ def get_media_presigned_url(
             raise HTTPException(status_code=404, detail="Project not found")
 
         # Query MediaAsset
-        from src.common.database.models.media_asset_table import MediaAsset
         media_asset = session.get(MediaAsset, media_asset_id)
         
         if not media_asset or media_asset.project_id != project_id:
@@ -295,4 +313,229 @@ def set_project_location(
         raise
     except Exception as e:
         logger.error(f"Error setting project location: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{project_id}/extract-frame", response_model=MediaAssetPublic)
+def extract_video_frame(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> MediaAssetPublic:
+    """Extract first frame from project video and save as media asset."""
+    temp_file_path = None
+    
+    try:
+        # Verify project exists and belongs to user
+        project = get_project_with_relations(
+            session=session, project_id=project_id, user_id=current_user.id
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if not project.video_id:
+            raise HTTPException(status_code=400, detail="No video uploaded for this project")
+
+        # Get video media asset
+        video_asset = session.get(MediaAsset, project.video_id)
+        if not video_asset:
+            raise HTTPException(status_code=404, detail="Video asset not found")
+
+        # Parse S3 URI and download video temporarily
+        bucket, key = parse_s3_uri(video_asset.uri)
+        
+        # For now, we'll use a placeholder approach since we need S3 download functionality
+        # In a real implementation, you'd download the video from S3 first
+        raise HTTPException(status_code=501, detail="Frame extraction not yet implemented - requires S3 download functionality")
+
+        # TODO: Implement actual frame extraction:
+        # 1. Download video from S3 to temp file
+        # 2. Use OpenCV to extract first frame
+        # 3. Save frame as image
+        # 4. Upload image to S3
+        # 5. Create media asset record
+        # 6. Link to homography session
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error extracting video frame: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        # Clean up temporary file
+        if temp_file_path and temp_file_path.exists():
+            temp_file_path.unlink(missing_ok=True)
+
+
+# Homography endpoints
+
+@router.post("/{project_id}/homography/session", response_model=HomographySessionPublic)
+def create_homography_session(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> HomographySessionPublic:
+    """Create or get active homography session for project."""
+    try:
+        # Verify project exists and belongs to user
+        project = get_project_with_relations(
+            session=session, project_id=project_id, user_id=current_user.id
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        homography_session = get_or_create_session_for_project(session, project_id)
+        return HomographySessionPublic.model_validate(homography_session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating homography session: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{project_id}/homography/session", response_model=HomographySessionPublic)
+def get_homography_session(
+    project_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> HomographySessionPublic:
+    """Get current homography session for project."""
+    try:
+        # Verify project exists and belongs to user
+        project = get_project_with_relations(
+            session=session, project_id=project_id, user_id=current_user.id
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        homography_session = get_session_with_relations(session, project.homography_session.id) if project.homography_session else None
+        if not homography_session:
+            raise HTTPException(status_code=404, detail="No homography session found")
+
+        return HomographySessionPublic.model_validate(homography_session)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting homography session: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/homography/sessions/{session_id}/pairs", response_model=HomographyPairPublic)
+def add_homography_pair(
+    session_id: uuid.UUID,
+    pair_data: HomographyPairCreate,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> HomographyPairPublic:
+    """Add point pair to homography session."""
+    try:
+        pair = add_pair(session, session_id, pair_data)
+        return HomographyPairPublic.model_validate(pair)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error adding homography pair: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.put("/homography/sessions/{session_id}/pairs", response_model=list[HomographyPairPublic])
+def update_homography_pairs(
+    session_id: uuid.UUID,
+    pairs_data: list[HomographyPairCreate],
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> list[HomographyPairPublic]:
+    """Replace all pairs in homography session (bulk update)."""
+    try:
+        pairs = update_pairs(session, session_id, pairs_data)
+        return [HomographyPairPublic.model_validate(pair) for pair in pairs]
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating homography pairs: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/homography/pairs/{pair_id}")
+def delete_homography_pair(
+    pair_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+):
+    """Delete specific homography pair."""
+    try:
+        success = delete_pair(session, pair_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Pair not found")
+        return {"message": "Pair deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting homography pair: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/homography/sessions/{session_id}/solve", response_model=HomographySolveResponse)
+def solve_homography_session(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> HomographySolveResponse:
+    """Solve homography for session."""
+    try:
+        model = solve_homography(session, session_id)
+        return HomographySolveResponse(
+            success=True,
+            model=HomographyModelPublic.model_validate(model)
+        )
+    except ValueError as e:
+        return HomographySolveResponse(
+            success=False,
+            error_message=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error solving homography: {e}")
+        return HomographySolveResponse(
+            success=False,
+            error_message="Internal server error"
+        )
+
+
+@router.get("/homography/sessions/{session_id}/model", response_model=HomographyModelPublic)
+def get_homography_model(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> HomographyModelPublic:
+    """Get solved homography model."""
+    try:
+        homography_session = get_session_with_relations(session, session_id)
+        if not homography_session:
+            raise HTTPException(status_code=404, detail="Homography session not found")
+        
+        if not homography_session.model:
+            raise HTTPException(status_code=404, detail="No solved model found")
+
+        return HomographyModelPublic.model_validate(homography_session.model)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting homography model: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/homography/sessions/{session_id}/export")
+def export_homography_session(
+    session_id: uuid.UUID,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+):
+    """Export homography data in process-video compatible format."""
+    try:
+        export_data = export_homography_data(session, session_id)
+        return export_data
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error exporting homography data: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
