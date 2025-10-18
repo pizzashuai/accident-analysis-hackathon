@@ -28,6 +28,7 @@ import { CreateProjectModal } from '~/components/Projects/CreateProjectModal';
 import { VideoUpload } from '~/components/Projects/VideoUpload';
 import { LocationPicker } from '~/components/Projects/LocationPicker';
 import { HomographyPicker } from '~/homography';
+import { VideoAnnotationViewer } from '~/components/VideoAnnotation/VideoAnnotationViewer';
 import {
   useProject,
   useDeleteProject,
@@ -484,6 +485,12 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                 projectId={params.projectId}
                 onUploadComplete={handleUploadComplete}
               />
+
+              {videoUrl && (
+                <VideoAnnotationViewer
+                  videoUrl={videoUrl}
+                />
+              )}
             </Stack>
           </Tabs.Panel>
 

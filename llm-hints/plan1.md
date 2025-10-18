@@ -43,28 +43,31 @@ Phase 2 — Homography Capture & Solving
 
 Phase 3 — Video Processing Run Integration
 
-- Goal: run the YOLO/ByteTrack pipeline through Celery, persist detections, and surface processing status/results per project.
+- Goal: run the YOLO/ByteTrack pipeline through Celery, persist detections, and expose live annotation data (JSONL-style) for the frontend overlay.
 - Backend: add processing_run, detection, artifact tables and CRUD; wrap process_video_with_supervision from backend/src/common/features/process-video/main.py
-  into a Celery task under backend/src/worker; task should read the project’s video asset, reuse stored homography (optional), write JSONL/video outputs, bulk-
-  insert detections, and create artifact rows; expose REST endpoints to start a run, poll status, and fetch aggregate stats (e.g., track counts).
-- Frontend: create a Processing panel on project detail to start a run (maybe configurable thresholds), show a status badge (pending/running/completed/failed)
-  with polling; list key metrics (frame count, number of tracks) and links to download artifacts.
-- Glue: ensure Celery worker uses same settings (update docker-compose if needed); run ./scripts/generate-client.sh; add optimistic UI updates with React
-  Query.
-- Verify (frontend): project detail → click “Run Analysis” → status transitions to running then completed; see detection summary counts and artifact download
-  buttons; annotated video link plays.
+  into a Celery task under backend/src/worker; task should read the project’s video asset, reuse stored homography (optional), write JSONL outputs, bulk-insert
+  detections, and create artifact rows; expose REST endpoints to start a run, poll status, stream/paginate detection frames, and fetch aggregate stats (e.g.,
+  track counts).
+- Frontend: create a Processing panel on project detail to start a run (maybe configurable thresholds), show status (pending/running/completed/failed) with
+  polling, list key metrics, surface artifact downloads, and hydrate the new annotation component with the JSONL-esque detection feed.
+- Glue: ensure Celery worker uses same settings (update docker-compose if needed); run ./scripts/generate-client.sh; keep JSONL schema aligned with
+  backend/src/common/features/process-video utilities so frontend and backend share the same structures.
+- Verify (frontend): project detail → click “Run Analysis” → status transitions to running then completed; detection summary/track counts appear; video overlay
+  renders live boxes sourced from the run without needing a pre-rendered annotated video.
 
 Phase 4 — Event Review & Track Selection
 
-- Goal: let users curate relevant tracks and review inferred events per project.
+- Goal: let users curate relevant tracks, update annotation overlays interactively, and review inferred events per project.
 - Backend: add selected_track and event endpoints returning paginated detections/events filtered by project or track; implement track-selection API to toggle
-  selected_track; extend processing task to calculate basic events (e.g., stop, collision) from existing JSONL outputs or a simplified heuristic (store in
-  event).
-- Frontend: add tabs for “Detections”, “Tracks”, “Events”; render detection timeline (table with frame/time, class, confidence), allow selecting tracks
-  (checkbox/CTA) that sync with backend, and display events with filtering by track/time.
-- Glue: regenerate client; add React Query caches; ensure throughput manageable (lazy load, server-side pagination).
-- Verify (frontend): after processing run, open Events tab → see list; select/deselect track IDs and refresh to confirm persistence; filter events by chosen
-  tracks.
+  selected_track and immediately influence detection feeds; extend processing task to calculate basic events (e.g., stop, collision) from JSONL outputs or a
+  simplified heuristic (store in event).
+- Frontend: add tabs for “Detections”, “Tracks”, “Events”; embed the video annotation component so clicking tracks (list/table) instantly toggles bounding
+  boxes on the playing video without producing a new video file; render detection timeline (frame/time, class, confidence) and event list filtered by selected
+  tracks/timestamps.
+- Glue: regenerate client; add React Query caches plus websocket/polling updates for track selections; ensure throughput manageable (lazy load, server-side
+  pagination).
+- Verify (frontend): after processing run, open Events tab → select/deselect track IDs and see overlay update immediately while persisting selection; filter
+  events by chosen tracks and refresh to confirm state sync.
 
 Phase 5 — Reporting & UX Polish
 
