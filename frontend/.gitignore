@@ -29,3 +29,5 @@ openapi.json
 /playwright/.cache/
 /playwright/.auth/
 /.react-router/
+/.pnpm-store/
+/build/
