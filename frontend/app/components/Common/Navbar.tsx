@@ -17,9 +17,7 @@ function Navbar() {
       p='md'
     >
       <Group gap='lg'>
-        <Title order={2} c='blue'>
-          Shuai Accident Analysis
-        </Title>
+        <Title order={2}>Shuai Accident Analysis</Title>
       </Group>
 
       <Group gap='sm'>

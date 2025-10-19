@@ -1,1 +1,0 @@
-import{b as d}from"./index-KLYDmlMY.js";function a({value:o,defaultValue:t,finalValue:r,onChange:e=()=>{}}){const[s,c]=d.useState(t!==void 0?t:r),l=(n,...u)=>{c(n),e?.(n,...u)};return o!==void 0?[o,e,!0]:[s,l,!1]}export{a as u};

@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
+  Button,
   Stack,
   Group,
-  Button,
   Text,
+  NumberInput,
   Paper,
+  TextInput,
   Box,
   Table,
   ActionIcon,
@@ -12,10 +14,10 @@ import {
   Badge,
   Flex,
   Alert,
-  TextInput,
   Loader,
 } from '@mantine/core';
 import { Dropzone, IMAGE_MIME_TYPE } from '@mantine/dropzone';
+import { useForm } from '@mantine/form';
 import {
   IconUpload,
   IconX,
@@ -26,8 +28,19 @@ import {
   IconCamera,
   IconCheck,
 } from '@tabler/icons-react';
-import { MapDisplay } from './MapDisplay';
-import { HomographyMatrixDisplay } from './HomographyMatrixDisplay';
+import {
+  APIProvider,
+  Map,
+  AdvancedMarker,
+  Pin,
+} from '@vis.gl/react-google-maps';
+import type { MapMouseEvent } from '@vis.gl/react-google-maps';
+import { MapDisplay } from '~/homography/MapDisplay';
+import { HomographyMatrixDisplay } from '~/homography/HomographyMatrixDisplay';
+import {
+  useSetProjectLocation,
+  useMediaPresignedUrl,
+} from '~/hooks/useProjects';
 import {
   useHomographySession,
   useCreateHomographySession,
@@ -36,14 +49,19 @@ import {
   useSolveHomography,
   useExtractFrame,
 } from '~/hooks/useHomography';
-import { useMediaPresignedUrl } from '~/hooks/useProjects';
 import { useCustomToast } from '~/hooks/useCustomToast';
 import type { HomographySessionPublic, HomographyPairPublic } from '~/client';
+
+interface LocationAndHomographyProps {
+  projectId: string;
+  project: any;
+  onLocationSet?: () => void;
+}
 
 interface Point {
   xNorm: number;
   yNorm: number;
-  x?: number; // rendered coordinates for display
+  x?: number;
   y?: number;
 }
 
@@ -70,38 +88,44 @@ interface ImageMetrics {
   offsetY: number;
 }
 
-interface HomographyPickerProps {
-  projectId: string;
-  existingSession?: HomographySessionPublic;
-}
-
-export function HomographyPicker({
+export function LocationAndHomography({
   projectId,
-  existingSession,
-}: HomographyPickerProps) {
-  const [imageA, setImageA] = useState<ImageData | null>(null);
-  const [imageLocation, setImageLocation] = useState<string>(
-    '800 140th Ave NE, Bellevue, WA'
+  project,
+  onLocationSet,
+}: LocationAndHomographyProps) {
+  // Location state
+  const [isSubmittingLocation, setIsSubmittingLocation] = useState(false);
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number }>({
+    lat: project.location?.lat || 1.3521,
+    lng: project.location?.lon || 103.8198,
+  });
+  const [markerPosition, setMarkerPosition] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(
+    project.location?.lat && project.location?.lon
+      ? { lat: project.location.lat, lng: project.location.lon }
+      : null
   );
-  const [mapCenter, setMapCenter] = useState<LatLngPoint>({
-    lat: 47.6169117,
-    lng: -122.1432687,
-  }); // Bellevue, WA
   const [mapZoom, setMapZoom] = useState(18);
+  const [autocomplete, setAutocomplete] =
+    useState<google.maps.places.Autocomplete | null>(null);
+
+  // Homography state
+  const [imageA, setImageA] = useState<ImageData | null>(null);
   const [pickingMode, setPickingMode] = useState(false);
   const [pairs, setPairs] = useState<PointPair[]>([]);
   const [pendingPointA, setPendingPointA] = useState<Point | null>(null);
   const [hoveredPairId, setHoveredPairId] = useState<string | null>(null);
   const [currentCoordA, setCurrentCoordA] = useState<Point | null>(null);
   const [currentCoordB, setCurrentCoordB] = useState<LatLngPoint | null>(null);
-  const [geocoding, setGeocoding] = useState(false);
-  const [mapKey, setMapKey] = useState(0); // Key to force map re-render
   const [saving, setSaving] = useState(false);
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [loadingScreenshot, setLoadingScreenshot] = useState(false);
 
   const imageRefA = useRef<HTMLImageElement>(null);
   const containerRefA = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [metricsA, setMetricsA] = useState<ImageMetrics>({
     width: 0,
@@ -111,8 +135,33 @@ export function HomographyPicker({
   });
 
   const { showToast } = useCustomToast();
+  const apiKey = import.meta.env.VITE_GOOGLE_MAP_KEY;
+
+  // Location form
+  const locationForm = useForm({
+    initialValues: {
+      addr_line: project.location?.addr_line || '',
+      lat: project.location?.lat || undefined,
+      lon: project.location?.lon || undefined,
+    },
+    validate: {
+      lat: (value) => {
+        if (value !== undefined && (value < -90 || value > 90)) {
+          return 'Latitude must be between -90 and 90';
+        }
+        return null;
+      },
+      lon: (value) => {
+        if (value !== undefined && (value < -180 || value > 180)) {
+          return 'Longitude must be between -180 and 180';
+        }
+        return null;
+      },
+    },
+  });
 
   // Backend integration hooks
+  const setLocation = useSetProjectLocation();
   const {
     data: session,
     isLoading: sessionLoading,
@@ -125,6 +174,55 @@ export function HomographyPicker({
   const extractFrame = useExtractFrame();
   const getMediaPresignedUrl = useMediaPresignedUrl();
 
+  // Initialize autocomplete when Google Maps API is available
+  useEffect(() => {
+    const initAutocomplete = () => {
+      if (
+        window.google &&
+        window.google.maps &&
+        window.google.maps.places &&
+        inputRef.current &&
+        !autocomplete
+      ) {
+        const autocompleteInstance = new google.maps.places.Autocomplete(
+          inputRef.current,
+          {
+            types: ['geocode', 'establishment'],
+          }
+        );
+
+        autocompleteInstance.addListener('place_changed', () => {
+          const place = autocompleteInstance.getPlace();
+          handlePlaceSelected(place);
+        });
+
+        setAutocomplete(autocompleteInstance);
+      }
+    };
+
+    initAutocomplete();
+
+    if (!window.google?.maps?.places) {
+      const timer = setTimeout(initAutocomplete, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [autocomplete]);
+
+  // Update form and map when coordinates change manually
+  useEffect(() => {
+    if (
+      locationForm.values.lat !== undefined &&
+      locationForm.values.lon !== undefined
+    ) {
+      const newPos = {
+        lat: locationForm.values.lat,
+        lng: locationForm.values.lon,
+      };
+      setMarkerPosition(newPos);
+      setMapCenter(newPos);
+    }
+  }, [locationForm.values.lat, locationForm.values.lon]);
+
   // Fetch screenshot URL from media asset
   const fetchScreenshotUrl = async (screenshotAssetId: string) => {
     setLoadingScreenshot(true);
@@ -134,7 +232,6 @@ export function HomographyPicker({
         mediaAssetId: screenshotAssetId,
       });
       setScreenshotUrl((response as { url: string }).url);
-      // Trigger metrics update after a short delay to ensure image is loaded
       setTimeout(() => {
         updateMetrics();
       }, 100);
@@ -149,17 +246,15 @@ export function HomographyPicker({
   // Load existing session data on mount
   useEffect(() => {
     if (session) {
-      // Convert backend pairs to frontend format
-      const convertedPairs: PointPair[] = session.pairs.map(
+      const convertedPairs: PointPair[] = (session.pairs || []).map(
         (pair: HomographyPairPublic) => ({
-          id: pair.id,
+          id: pair.id.toString(),
           a: { xNorm: pair.image_x_norm, yNorm: pair.image_y_norm },
           b: { lat: pair.map_lat, lng: pair.map_lng },
         })
       );
       setPairs(convertedPairs);
 
-      // Load screenshot if available
       if (session.screenshot_asset_id) {
         fetchScreenshotUrl(session.screenshot_asset_id);
       }
@@ -177,7 +272,6 @@ export function HomographyPicker({
         offsetY: rect.top,
       };
 
-      // Only update if metrics have actually changed to avoid unnecessary re-renders
       setMetricsA((prevMetrics) => {
         if (
           prevMetrics.width !== newMetrics.width ||
@@ -198,10 +292,8 @@ export function HomographyPicker({
     return () => window.removeEventListener('resize', updateMetrics);
   }, [updateMetrics, imageA]);
 
-  // Update metrics when screenshot URL changes
   useEffect(() => {
     if (screenshotUrl) {
-      // Multiple attempts to ensure image is loaded and metrics are calculated
       const timers = [
         setTimeout(() => updateMetrics(), 100),
         setTimeout(() => updateMetrics(), 500),
@@ -214,16 +306,64 @@ export function HomographyPicker({
     }
   }, [screenshotUrl, updateMetrics]);
 
-  // Additional effect to update metrics when pairs are loaded
   useEffect(() => {
     if (pairs.length > 0 && (imageA || screenshotUrl)) {
-      // Ensure metrics are calculated when pairs exist
       const timer = setTimeout(() => {
         updateMetrics();
       }, 200);
       return () => clearTimeout(timer);
     }
   }, [pairs.length, imageA, screenshotUrl, updateMetrics]);
+
+  const handlePlaceSelected = (
+    place: google.maps.places.PlaceResult | null
+  ) => {
+    if (place?.geometry?.location) {
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const address = place.formatted_address || '';
+
+      locationForm.setFieldValue('addr_line', address);
+      locationForm.setFieldValue('lat', lat);
+      locationForm.setFieldValue('lon', lng);
+
+      setMapCenter({ lat, lng });
+      setMarkerPosition({ lat, lng });
+    }
+  };
+
+  const handleMapClick = (event: MapMouseEvent) => {
+    if (event.detail.latLng) {
+      const lat = event.detail.latLng.lat;
+      const lng = event.detail.latLng.lng;
+
+      locationForm.setFieldValue('lat', lat);
+      locationForm.setFieldValue('lon', lng);
+
+      setMarkerPosition({ lat, lng });
+    }
+  };
+
+  const handleLocationSubmit = async (values: typeof locationForm.values) => {
+    setIsSubmittingLocation(true);
+    try {
+      await setLocation.mutateAsync({
+        projectId,
+        locationData: {
+          addr_line: values.addr_line || undefined,
+          lat: values.lat || undefined,
+          lon: values.lon || undefined,
+          source: 'user',
+        },
+      });
+      showToast('Location updated successfully', 'success');
+      onLocationSet?.();
+    } catch (error) {
+      showToast('Failed to update location', 'error');
+    } finally {
+      setIsSubmittingLocation(false);
+    }
+  };
 
   const handleDropA = (files: File[]) => {
     if (files[0]) {
@@ -264,13 +404,12 @@ export function HomographyPicker({
     setCurrentCoordA(point);
   };
 
-  const handleMapClick = (latLng: LatLngPoint) => {
+  const handleHomographyMapClick = (latLng: LatLngPoint) => {
     if (!pickingMode) {
       return;
     }
 
     if (pendingPointA) {
-      // Complete the pair
       const newPair: PointPair = {
         id: Date.now().toString(),
         a: pendingPointA,
@@ -282,7 +421,6 @@ export function HomographyPicker({
       setCurrentCoordA(null);
       setCurrentCoordB(null);
 
-      // Auto-save pairs to backend
       savePairsToBackend(updatedPairs);
     } else {
       setCurrentCoordB(latLng);
@@ -312,13 +450,11 @@ export function HomographyPicker({
     const updatedPairs = pairs.filter((p) => p.id !== id);
     setPairs(updatedPairs);
 
-    // Delete from backend
     try {
       await deletePair.mutateAsync(id);
       showToast('Pair deleted successfully', 'success');
     } catch (error) {
       showToast('Failed to delete pair', 'error');
-      // Revert local change
       setPairs(pairs);
     }
   };
@@ -378,43 +514,6 @@ export function HomographyPicker({
     }
   };
 
-  const geocodeAddress = async () => {
-    if (!imageLocation.trim()) return;
-
-    setGeocoding(true);
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(
-          imageLocation
-        )}&key=AIzaSyCYrfgKpls8rM2nzl7qIFXhTF2jT9gbOgA`
-      );
-      const data = await response.json();
-
-      if (data.results && data.results.length > 0) {
-        const location = data.results[0].geometry.location;
-        setMapCenter({ lat: location.lat, lng: location.lng });
-        setMapZoom(18);
-        setMapKey((prev) => prev + 1);
-      } else {
-        showToast(
-          'Location not found. Please try a different address.',
-          'error'
-        );
-      }
-    } catch (error) {
-      showToast(
-        'Failed to geocode address. Please check your internet connection.',
-        'error'
-      );
-    } finally {
-      setGeocoding(false);
-    }
-  };
-
-  const recenterMap = () => {
-    setMapKey((prev) => prev + 1);
-  };
-
   const bothImagesLoaded = imageA || screenshotUrl;
   const hasMinimumPairs = pairs.length >= 4;
   const isSolved = session?.status === 'solved';
@@ -430,41 +529,168 @@ export function HomographyPicker({
 
   return (
     <Stack gap='lg'>
-      {/* Session Status */}
+      {/* Location Section */}
       <Paper p='sm' withBorder>
-        <Group justify='space-between' align='center'>
-          <Group gap='xs'>
-            <Text fw={600} size='md'>
+        <Stack gap='md'>
+          <div>
+            <Text size='lg' fw={600} mb='xs'>
+              Set Location
+            </Text>
+          </div>
+
+          {project.location?.lat && project.location?.lon && (
+            <Alert color='green' icon={<IconCheck size={16} />}>
+              Location set:{' '}
+              {project.location.addr_line ||
+                `${project.location.lat.toFixed(6)}, ${project.location.lon.toFixed(6)}`}
+            </Alert>
+          )}
+
+          <APIProvider apiKey={apiKey} libraries={['places']}>
+            <form onSubmit={locationForm.onSubmit(handleLocationSubmit)}>
+              <Stack gap='md'>
+                <TextInput
+                  ref={inputRef}
+                  label='Address'
+                  placeholder='Search for an address or place...'
+                  {...locationForm.getInputProps('addr_line')}
+                />
+
+                {/* Interactive Map */}
+                <div>
+                  <Text size='sm' fw={500} mb={4}>
+                    Map
+                  </Text>
+                  <Paper
+                    withBorder
+                    style={{
+                      width: '100%',
+                      height: 300,
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <Map
+                      defaultZoom={mapZoom}
+                      center={mapCenter}
+                      onClick={handleMapClick}
+                      mapId='location-picker-map'
+                      style={{ width: '100%', height: '100%' }}
+                      gestureHandling='greedy'
+                      disableDefaultUI={false}
+                    >
+                      {markerPosition && (
+                        <AdvancedMarker
+                          position={markerPosition}
+                          title='Selected Location'
+                        >
+                          <Pin
+                            background='#228be6'
+                            borderColor='#ffffff'
+                            glyphColor='#ffffff'
+                          />
+                        </AdvancedMarker>
+                      )}
+                    </Map>
+                  </Paper>
+                </div>
+
+                <Group grow>
+                  <NumberInput
+                    label='Latitude'
+                    placeholder='e.g., 40.7128'
+                    decimalScale={6}
+                    min={-90}
+                    max={90}
+                    {...locationForm.getInputProps('lat')}
+                  />
+                  <NumberInput
+                    label='Longitude'
+                    placeholder='e.g., -74.0060'
+                    decimalScale={6}
+                    min={-180}
+                    max={180}
+                    {...locationForm.getInputProps('lon')}
+                  />
+                </Group>
+
+                <Button type='submit' loading={isSubmittingLocation}>
+                  {project.location ? 'Update Location' : 'Set Location'}
+                </Button>
+              </Stack>
+            </form>
+          </APIProvider>
+        </Stack>
+      </Paper>
+
+      {/* Homography Configuration & Matrix Section */}
+      <Paper p='sm' withBorder>
+        <Stack gap='md'>
+          <div>
+            <Text size='lg' fw={600} mb='xs'>
               Homography Configuration
             </Text>
-            <Badge
-              color={
-                isSolved
-                  ? 'green'
+            <Text size='sm' c='dimmed'>
+              Map points from your video frame to real-world coordinates.
+            </Text>
+          </div>
+
+          {/* Session Status */}
+          <Group justify='space-between' align='center'>
+            <Group gap='xs'>
+              <Text fw={600} size='sm'>
+                Status
+              </Text>
+              <Badge
+                color={
+                  isSolved
+                    ? 'green'
+                    : session?.status === 'draft'
+                      ? 'yellow'
+                      : 'gray'
+                }
+                variant='light'
+              >
+                {isSolved
+                  ? 'Solved'
                   : session?.status === 'draft'
-                    ? 'yellow'
-                    : 'gray'
-              }
-              variant='light'
-            >
-              {isSolved
-                ? 'Solved'
-                : session?.status === 'draft'
-                  ? 'Draft'
-                  : 'Not configured'}
-            </Badge>
+                    ? 'Draft'
+                    : 'Not configured'}
+              </Badge>
+            </Group>
+
+            {!session && (
+              <Button
+                onClick={() => createSession.mutate(projectId)}
+                loading={createSession.isPending}
+                leftSection={<IconCheck size={16} />}
+              >
+                Initialize Session
+              </Button>
+            )}
           </Group>
 
-          {!session && (
-            <Button
-              onClick={() => createSession.mutate(projectId)}
-              loading={createSession.isPending}
-              leftSection={<IconCheck size={16} />}
-            >
-              Initialize Session
-            </Button>
+          {(session as any)?.status === 'solved' && (
+            <Alert color='green' icon={<IconCheck size={16} />}>
+              Homography solved successfully! You can now proceed to run
+              processing.
+            </Alert>
           )}
-        </Group>
+
+          {!project.media_assets?.some(
+            (asset: any) => asset.kind === 'image'
+          ) && (
+            <Alert color='red' icon={<IconCheck size={16} />}>
+              Please capture a key frame first (Step 2).
+            </Alert>
+          )}
+
+          {!project.location && (
+            <Alert color='red' icon={<IconCheck size={16} />}>
+              Please set the location first above.
+            </Alert>
+          )}
+        </Stack>
       </Paper>
 
       {/* Extract Frame Section */}
@@ -493,53 +719,12 @@ export function HomographyPicker({
       )}
 
       {/* Upload CCTV Image */}
-      <Paper p='sm' withBorder>
-        <Stack gap='sm'>
-          <Text fw={600} size='sm'>
-            CCTV Image (A)
-          </Text>
-          {imageA ? (
-            <Box>
-              <img
-                src={imageA.url}
-                alt='CCTV'
-                style={{ maxWidth: '100%', height: 'auto' }}
-              />
-              <Button
-                size='xs'
-                variant='light'
-                color='red'
-                onClick={() => setImageA(null)}
-                mt='xs'
-                fullWidth
-              >
-                Remove
-              </Button>
-            </Box>
-          ) : screenshotUrl ? (
-            <Box>
-              {loadingScreenshot ? (
-                <Group justify='center' p='xl'>
-                  <Loader size='md' />
-                  <Text size='sm' c='dimmed'>
-                    Loading screenshot...
-                  </Text>
-                </Group>
-              ) : (
-                <img
-                  src={screenshotUrl}
-                  alt='Video Screenshot'
-                  style={{ maxWidth: '100%', height: 'auto' }}
-                  onError={() => {
-                    showToast('Screenshot failed to load', 'error');
-                  }}
-                />
-              )}
-              <Text size='xs' c='dimmed' mt='xs'>
-                First frame extracted from video
-              </Text>
-            </Box>
-          ) : (
+      {!imageA && !screenshotUrl && (
+        <Paper p='sm' withBorder>
+          <Stack gap='sm'>
+            <Text fw={600} size='sm'>
+              CCTV Image
+            </Text>
             <Dropzone
               onDrop={handleDropA}
               accept={IMAGE_MIME_TYPE}
@@ -567,52 +752,14 @@ export function HomographyPicker({
                 </div>
               </Group>
             </Dropzone>
-          )}
-        </Stack>
-      </Paper>
-
-      {/* Image Location */}
-      <Paper p='sm' withBorder>
-        <Stack gap='sm'>
-          <Text fw={600} size='sm'>
-            Image Location
-          </Text>
-          <Group gap='xs' align='flex-end'>
-            <TextInput
-              flex={1}
-              placeholder='Enter address or location'
-              value={imageLocation}
-              onChange={(e) => setImageLocation(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  geocodeAddress();
-                }
-              }}
-              leftSection={<IconMapPin size={16} />}
-              description='Default: 800 140th Ave NE, Bellevue, WA'
-            />
-            <Button
-              onClick={geocodeAddress}
-              loading={geocoding}
-              leftSection={<IconSearch size={16} />}
-            >
-              Search
-            </Button>
-            <Button
-              onClick={recenterMap}
-              variant='light'
-              leftSection={<IconMapPin size={16} />}
-            >
-              Re-center
-            </Button>
-          </Group>
-        </Stack>
-      </Paper>
+          </Stack>
+        </Paper>
+      )}
 
       {/* Pick Points Button */}
       <Group justify='center'>
         <Button
-          disabled={!bothImagesLoaded}
+          disabled={!bothImagesLoaded || !project.location}
           onClick={() => setPickingMode(!pickingMode)}
           color={pickingMode ? 'red' : 'blue'}
         >
@@ -642,62 +789,138 @@ export function HomographyPicker({
       {saving && <Alert color='blue'>Saving pairs to backend...</Alert>}
 
       {/* Side-by-side Image and Map */}
-      {bothImagesLoaded && (
+      {bothImagesLoaded && project.location && (
         <Group grow align='flex-start'>
-          <Card padding='md' withBorder>
+          <Card padding='md' withBorder style={{ flex: '2' }}>
             <Stack gap='xs'>
-              <Text fw={600} size='sm'>
-                CCTV Image (A)
-              </Text>
-              <Box
-                ref={containerRefA}
-                style={{
-                  position: 'relative',
-                  cursor:
-                    pickingMode && !pendingPointA ? 'crosshair' : 'default',
-                }}
-                onClick={handleImageClickA}
-                onMouseMove={handleImageMoveA}
-              >
-                <img
-                  ref={imageRefA}
-                  src={imageA?.url || screenshotUrl || ''}
-                  alt='CCTV'
-                  onLoad={() => {
-                    // Multiple attempts to ensure metrics are calculated after image loads
-                    updateMetrics();
-                    setTimeout(() => updateMetrics(), 100);
-                    setTimeout(() => updateMetrics(), 300);
-                  }}
+              <Group justify='space-between' align='center'>
+                <Text fw={600} size='sm'>
+                  CCTV Image (A)
+                </Text>
+                {imageA && (
+                  <Button
+                    size='xs'
+                    variant='light'
+                    color='red'
+                    onClick={() => setImageA(null)}
+                    leftSection={<IconTrash size={12} />}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </Group>
+              {loadingScreenshot ? (
+                <Group justify='center' p='xl'>
+                  <Loader size='md' />
+                  <Text size='sm' c='dimmed'>
+                    Loading screenshot...
+                  </Text>
+                </Group>
+              ) : (
+                <Box
+                  ref={containerRefA}
                   style={{
-                    maxWidth: '100%',
-                    height: 'auto',
-                    display: 'block',
+                    position: 'relative',
+                    cursor:
+                      pickingMode && !pendingPointA ? 'crosshair' : 'default',
                   }}
-                />
-                {/* Render markers */}
-                {pairs.map((pair, index) => {
-                  // Use fallback metrics if not properly initialized
-                  const effectiveMetrics =
-                    metricsA && metricsA.width > 0 && metricsA.height > 0
-                      ? metricsA
-                      : { width: 400, height: 300, offsetX: 0, offsetY: 0 }; // Fallback dimensions
+                  onClick={handleImageClickA}
+                  onMouseMove={handleImageMoveA}
+                >
+                  <img
+                    ref={imageRefA}
+                    src={imageA?.url || screenshotUrl || ''}
+                    alt='CCTV'
+                    onLoad={() => {
+                      updateMetrics();
+                      setTimeout(() => updateMetrics(), 100);
+                      setTimeout(() => updateMetrics(), 300);
+                    }}
+                    onError={() => {
+                      if (screenshotUrl) {
+                        showToast('Screenshot failed to load', 'error');
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      display: 'block',
+                      maxHeight: '600px',
+                      objectFit: 'contain',
+                    }}
+                  />
+                  {/* Render markers */}
+                  {pairs.map((pair, index) => {
+                    const effectiveMetrics =
+                      metricsA && metricsA.width > 0 && metricsA.height > 0
+                        ? metricsA
+                        : { width: 400, height: 300, offsetX: 0, offsetY: 0 };
 
-                  const pos = denormalizeCoordinates(pair.a, effectiveMetrics);
-                  return (
+                    const pos = denormalizeCoordinates(
+                      pair.a,
+                      effectiveMetrics
+                    );
+                    return (
+                      <Box
+                        key={pair.id}
+                        style={{
+                          position: 'absolute',
+                          left: pos.x,
+                          top: pos.y,
+                          transform: 'translate(-50%, -50%)',
+                          width: 24,
+                          height: 24,
+                          borderRadius: '50%',
+                          backgroundColor:
+                            hoveredPairId === pair.id ? '#ff6b6b' : '#4dabf7',
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '12px',
+                          fontWeight: 'bold',
+                          border: '2px solid white',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                          pointerEvents: 'none',
+                        }}
+                      >
+                        {index + 1}
+                      </Box>
+                    );
+                  })}
+                  {/* Render pending point A marker */}
+                  {pendingPointA && (
                     <Box
-                      key={pair.id}
                       style={{
                         position: 'absolute',
-                        left: pos.x,
-                        top: pos.y,
+                        left: denormalizeCoordinates(
+                          pendingPointA,
+                          metricsA && metricsA.width > 0 && metricsA.height > 0
+                            ? metricsA
+                            : {
+                                width: 400,
+                                height: 300,
+                                offsetX: 0,
+                                offsetY: 0,
+                              }
+                        ).x,
+                        top: denormalizeCoordinates(
+                          pendingPointA,
+                          metricsA && metricsA.width > 0 && metricsA.height > 0
+                            ? metricsA
+                            : {
+                                width: 400,
+                                height: 300,
+                                offsetX: 0,
+                                offsetY: 0,
+                              }
+                        ).y,
                         transform: 'translate(-50%, -50%)',
                         width: 24,
                         height: 24,
                         borderRadius: '50%',
-                        backgroundColor:
-                          hoveredPairId === pair.id ? '#ff6b6b' : '#4dabf7',
-                        color: 'white',
+                        backgroundColor: '#ffd43b',
+                        color: '#000',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -706,50 +929,19 @@ export function HomographyPicker({
                         border: '2px solid white',
                         boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
                         pointerEvents: 'none',
+                        animation: 'pulse 1s infinite',
                       }}
                     >
-                      {index + 1}
+                      ?
                     </Box>
-                  );
-                })}
-                {/* Render pending point A marker */}
-                {pendingPointA && (
-                  <Box
-                    style={{
-                      position: 'absolute',
-                      left: denormalizeCoordinates(
-                        pendingPointA,
-                        metricsA && metricsA.width > 0 && metricsA.height > 0
-                          ? metricsA
-                          : { width: 400, height: 300, offsetX: 0, offsetY: 0 }
-                      ).x,
-                      top: denormalizeCoordinates(
-                        pendingPointA,
-                        metricsA && metricsA.width > 0 && metricsA.height > 0
-                          ? metricsA
-                          : { width: 400, height: 300, offsetX: 0, offsetY: 0 }
-                      ).y,
-                      transform: 'translate(-50%, -50%)',
-                      width: 24,
-                      height: 24,
-                      borderRadius: '50%',
-                      backgroundColor: '#ffd43b',
-                      color: '#000',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      border: '2px solid white',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                      pointerEvents: 'none',
-                      animation: 'pulse 1s infinite',
-                    }}
-                  >
-                    ?
-                  </Box>
-                )}
-              </Box>
+                  )}
+                </Box>
+              )}
+              {screenshotUrl && !imageA && (
+                <Text size='xs' c='dimmed'>
+                  First frame extracted from video
+                </Text>
+              )}
               {pickingMode && (
                 <>
                   {pendingPointA && (
@@ -773,17 +965,16 @@ export function HomographyPicker({
             </Stack>
           </Card>
 
-          <Card padding='md' withBorder>
+          <Card padding='md' withBorder style={{ flex: '1' }}>
             <Stack gap='xs'>
               <Text fw={600} size='sm'>
-                Google Map (B)
+                Google Map (B) - Using Location Above
               </Text>
               <MapDisplay
-                key={mapKey}
-                height={500}
+                height={400}
                 center={mapCenter}
                 zoom={mapZoom}
-                onMapClick={handleMapClick}
+                onMapClick={handleHomographyMapClick}
                 onMapHover={handleMapHover}
                 pairs={pairs}
                 hoveredPairId={hoveredPairId}
@@ -881,16 +1072,6 @@ export function HomographyPicker({
             </Button>
           </Stack>
         </Paper>
-      )}
-
-      {/* Show solved matrix */}
-      {isSolved && session?.model && (
-        <HomographyMatrixDisplay
-          matrix={session.model.matrix_data}
-          error={session.model.reprojection_error}
-          inlierCount={session.model.meta?.inlier_count}
-          totalPairs={session.model.meta?.total_pairs}
-        />
       )}
     </Stack>
   );

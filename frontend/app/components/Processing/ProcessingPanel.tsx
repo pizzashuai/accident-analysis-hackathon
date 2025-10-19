@@ -255,7 +255,7 @@ export function ProcessingPanel({
   }
 
   return (
-    <Stack gap='md'>
+    <Stack gap='md' data-processing-panel>
       {/* Start Processing Section */}
       <Card withBorder shadow='sm'>
         <Stack gap='md'>
