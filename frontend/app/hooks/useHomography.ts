@@ -91,7 +91,10 @@ export function useDeleteHomographyPair() {
   const queryClient = useQueryClient();
 
   return useMutation<{ message: string }, ApiError, string>({
-    mutationFn: (pairId) => ProjectsService.deleteHomographyPair({ pairId }),
+    mutationFn: async (pairId) => {
+      const result = await ProjectsService.deleteHomographyPair({ pairId });
+      return { message: 'Pair deleted successfully' };
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['homography-session'] });
       queryClient.invalidateQueries({ queryKey: ['homography-pairs'] });

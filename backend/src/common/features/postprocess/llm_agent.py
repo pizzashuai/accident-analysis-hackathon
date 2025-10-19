@@ -29,10 +29,22 @@ class LLMAgentConfig:
     padding_frames: int = 10
     detections_file: str = "../process_video/detections.jsonl"
     aws_region: str = "us-west-2"
-    bedrock_model_id: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    bedrock_models: list[str] = None  # type: ignore
     max_iterations: int = 20
     temperature: float = 0.0
     max_tokens: int = 4096
+
+    def __post_init__(self):
+        """Set default models if none provided."""
+        if self.bedrock_models is None:
+            self.bedrock_models = [
+                "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "us.anthropic.claude-sonnet-4-20250514-v1:0",
+                "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            ]
+        # Ensure bedrock_models is always a list for type safety
+        assert isinstance(self.bedrock_models, list), "bedrock_models must be a list"
 
 
 class LLMAccidentAnalysisAgent:
@@ -57,6 +69,8 @@ CRITICAL REQUIREMENTS:
 - Adapt your report format based on what you find in the data
 - Be precise about collision vs near-miss determinations
 - Highlight data quality issues and assumptions
+- ALL DISTANCE MEASUREMENTS MUST BE IN MILES
+- ALL SPEED MEASUREMENTS MUST BE IN MILES PER HOUR (MPH)
 
 AVAILABLE TOOLS:
 1. load_detections - Load detection data for specified track IDs
@@ -90,8 +104,46 @@ Generate a professional, data-driven accident analysis report."""
         self.conversation_history: list[dict[str, Any]] = []
         self.execution_log: list[dict[str, Any]] = []
 
+        # Model management
+        self.current_model_index = 0
+        self.current_model_id = config.bedrock_models[0]
+        self.model_attempts = {}  # Track attempts per model
+
         # Initialize AWS Bedrock client
         self.bedrock_client = self._initialize_bedrock_client()
+
+    def _is_throttling_error(self, error: Exception) -> bool:
+        """Check if the error is a throttling error."""
+        error_str = str(error).lower()
+        throttling_indicators = [
+            "throttle",
+            "rate limit",
+            "too many requests",
+            "quota exceeded",
+            "service unavailable",
+            "throttlingexception",
+            "request limit exceeded",
+        ]
+        return any(indicator in error_str for indicator in throttling_indicators)
+
+    def _switch_to_next_model(self) -> bool:
+        """Switch to the next available model. Returns True if successful, False if no more models."""
+        self.current_model_index += 1
+
+        if self.current_model_index >= len(self.config.bedrock_models):
+            print(
+                f"\n❌ All models exhausted. Tried {len(self.config.bedrock_models)} models."
+            )
+            return False
+
+        self.current_model_id = self.config.bedrock_models[self.current_model_index]
+
+        # Initialize attempt counter for the new model
+        if self.current_model_id not in self.model_attempts:
+            self.model_attempts[self.current_model_id] = 0
+
+        print(f"\n🔄 Switching to model: {self.current_model_id}")
+        return True
 
     def _initialize_bedrock_client(self):
         """Initialize AWS Bedrock client with credentials."""
@@ -140,7 +192,8 @@ Generate a professional, data-driven accident analysis report."""
         print("LLM-POWERED ACCIDENT ANALYSIS")
         print("=" * 80)
         print(f"Analyzing tracks: {self.config.track_ids}")
-        print(f"Using model: {self.config.bedrock_model_id}")
+        print(f"Available models: {', '.join(self.config.bedrock_models)}")
+        print(f"Starting with model: {self.current_model_id}")
         print(f"AWS Region: {self.config.aws_region}")
         print("-" * 80)
 
@@ -213,12 +266,13 @@ Please:
 3. Generate a comprehensive analysis report with appropriate format based on the data
 4. Include specific frame citations, timestamps, and metrics
 5. Highlight any data quality issues or assumptions
+6. IMPORTANT: All distance measurements must be in miles and all speed measurements must be in miles per hour (MPH)
 
 Start by loading the detection data for the specified tracks."""
         return query
 
     def _call_bedrock_with_tools(self) -> dict[str, Any]:
-        """Call AWS Bedrock Claude with tool use capability."""
+        """Call AWS Bedrock Claude with tool use capability and automatic model fallback."""
         if not self.bedrock_client:
             raise RuntimeError("Bedrock client not initialized")
 
@@ -228,24 +282,51 @@ Start by loading the detection data for the specified tracks."""
         # Prepare messages
         messages = self.conversation_history.copy()
 
-        # Call Bedrock
-        try:
-            response = self.bedrock_client.converse(
-                modelId=self.config.bedrock_model_id,
-                messages=messages,
-                system=[{"text": self.SYSTEM_PROMPT}],
-                toolConfig={"tools": tools},
-                inferenceConfig={
-                    "maxTokens": self.config.max_tokens,
-                    "temperature": self.config.temperature,
-                },
-            )
+        # Track attempts for current model
+        if self.current_model_id not in self.model_attempts:
+            self.model_attempts[self.current_model_id] = 0
+        self.model_attempts[self.current_model_id] += 1
 
-            return response
+        # Call Bedrock with retry logic
+        while True:
+            try:
+                print(
+                    f"  → Calling model: {self.current_model_id} (attempt {self.model_attempts[self.current_model_id]})"
+                )
 
-        except Exception as e:
-            print(f"\n✗ Error calling Bedrock: {str(e)}")
-            raise
+                response = self.bedrock_client.converse(
+                    modelId=self.current_model_id,
+                    messages=messages,
+                    system=[{"text": self.SYSTEM_PROMPT}],
+                    toolConfig={"tools": tools},
+                    inferenceConfig={
+                        "maxTokens": self.config.max_tokens,
+                        "temperature": self.config.temperature,
+                    },
+                )
+
+                return response
+
+            except Exception as e:
+                print(
+                    f"\n✗ Error calling Bedrock with {self.current_model_id}: {str(e)}"
+                )
+
+                # Check if it's a throttling error
+                if self._is_throttling_error(e):
+                    print(f"  → Throttling detected for {self.current_model_id}")
+
+                    # Try to switch to next model
+                    if self._switch_to_next_model():
+                        continue  # Retry with new model
+                    else:
+                        # All models exhausted
+                        raise RuntimeError(
+                            f"All models exhausted due to throttling. Last error: {str(e)}"
+                        )
+                else:
+                    # Non-throttling error, re-raise immediately
+                    raise
 
     def _prepare_tool_definitions(self) -> list[dict[str, Any]]:
         """Prepare tool definitions in Bedrock format."""
@@ -491,7 +572,7 @@ Start by loading the detection data for the specified tracks."""
                 "role": "user",
                 "content": [
                     {
-                        "text": "Based on all the tool results, please provide your comprehensive accident analysis report now. Generate a report format that best suits the data you've analyzed, including all relevant findings, metrics, and conclusions."
+                        "text": "Based on all the tool results, please provide your comprehensive accident analysis report now. Generate a report format that best suits the data you've analyzed, including all relevant findings, metrics, and conclusions. IMPORTANT: All distance measurements must be in miles and all speed measurements must be in miles per hour (MPH)."
                     }
                 ],
             }
@@ -505,7 +586,9 @@ Start by loading the detection data for the specified tracks."""
         return {
             "success": True,
             "report_type": "llm_generated",
-            "model": self.config.bedrock_model_id,
+            "model": self.current_model_id,
+            "models_tried": self.config.bedrock_models[: self.current_model_index + 1],
+            "model_attempts": self.model_attempts,
             "report": report_text,
             "iterations": iterations,
             "execution_log": self.execution_log,
@@ -531,19 +614,19 @@ def main():
 Examples:
   # Analyze collision between tracks 7 and 14
   python llm_agent.py --track-ids 7 14
-  
+
   # Analyze specific frame range
   python llm_agent.py --track-ids 7 14 --frame-range 2 30
-  
-  # Use different AWS region and model
-  python llm_agent.py --track-ids 7 14 --aws-region us-west-2 --bedrock-model anthropic.claude-3-5-sonnet-20241022-v2:0
-  
+
+  # Use different AWS region and models
+  python llm_agent.py --track-ids 7 14 --aws-region us-west-2 --bedrock-models anthropic.claude-3-5-sonnet-20241022-v2:0 anthropic.claude-3-5-haiku-20241022-v1:0
+
   # Adjust detection thresholds
   python llm_agent.py --track-ids 7 14 --iou-threshold 0.02 --distance-threshold 3.0
-  
+
   # Save report to file
   python llm_agent.py --track-ids 7 14 --output report.json
-  
+
   # Use custom detections file
   python llm_agent.py --track-ids 7 14 --detections-file /path/to/detections.jsonl
         """,
@@ -613,10 +696,17 @@ Examples:
     )
 
     parser.add_argument(
-        "--bedrock-model",
+        "--bedrock-models",
         type=str,
-        default="anthropic.claude-3-haiku-20240307-v1:0",
-        help="Bedrock model ID (default: Claude 3.5 Sonnet v2)",
+        nargs="+",
+        default=[
+            "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+            "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        ],
+        help="List of Bedrock model IDs to try in order (default: multiple Claude models)",
     )
 
     parser.add_argument(
@@ -671,7 +761,7 @@ Examples:
         padding_frames=args.padding_frames,
         detections_file=str(detections_path),
         aws_region=args.aws_region,
-        bedrock_model_id=args.bedrock_model,
+        bedrock_models=args.bedrock_models,
         max_iterations=args.max_iterations,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
@@ -703,6 +793,9 @@ Examples:
         # Display the LLM-generated report
         print(f"\nLLM-Generated Report ({report['model']}):")
         print(f"Iterations: {report['iterations']}")
+        if len(report["models_tried"]) > 1:
+            print(f"Models tried: {', '.join(report['models_tried'])}")
+            print(f"Model attempts: {report['model_attempts']}")
         print("\n" + "-" * 80)
         print(report["report"])
         print("-" * 80)

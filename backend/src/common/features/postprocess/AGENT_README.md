@@ -193,7 +193,7 @@ occurred and produce a comprehensive timeline.
 
 CRITICAL REQUIREMENTS:
 - Every event citation must include frame number, timestamp, and key numeric metrics
-- Verify units: distances in meters, speeds in m/s or mph, time in seconds
+- Verify units: distances in miles, speeds in miles per hour (MPH), time in seconds
 - Request follow-up tool calls whenever more data is needed
 - Surface any missing metadata as warnings
 

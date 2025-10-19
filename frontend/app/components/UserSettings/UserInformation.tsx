@@ -48,7 +48,7 @@ const UserInformation = () => {
 
   const mutation = useMutation({
     mutationFn: (data: UserUpdateMe) =>
-      UsersService.updateUserMe({ requestBody: data }),
+      UsersService.updateUserMeRoute({ requestBody: data }),
     onSuccess: () => {
       showSuccessToast('User updated successfully.');
     },

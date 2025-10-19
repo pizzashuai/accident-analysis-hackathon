@@ -33,7 +33,7 @@ const ChangePassword = () => {
 
   const mutation = useMutation({
     mutationFn: (data: UpdatePassword) =>
-      UsersService.updatePasswordMe({ requestBody: data }),
+      UsersService.updatePasswordMeRoute({ requestBody: data }),
     onSuccess: () => {
       showSuccessToast('Password updated successfully.');
       reset();

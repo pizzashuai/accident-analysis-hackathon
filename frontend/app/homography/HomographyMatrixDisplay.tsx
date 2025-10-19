@@ -113,7 +113,7 @@ export function HomographyMatrixDisplay({
                 3×3 Transformation Matrix
               </Text>
 
-              <Table size='sm' striped>
+              <Table striped>
                 <Table.Tbody>
                   {matrix.map((row, rowIndex) => (
                     <Table.Tr key={rowIndex}>

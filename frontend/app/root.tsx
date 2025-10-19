@@ -60,8 +60,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <body>
         <QueryClientProvider client={queryClient}>
           <AppTheme>
-            <Notifications position='top-right' />
             {children}
+            <Notifications position='top-right' />
           </AppTheme>
         </QueryClientProvider>
         <ScrollRestoration />
@@ -92,14 +92,16 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   }
 
   return (
-    <Container component='main' pt='xl' p='md' mx='auto'>
-      <Title>{message}</Title>
-      <Text>{details}</Text>
-      {stack && (
-        <Box component='pre' w='100%' style={{ overflowX: 'auto' }} p='md'>
-          <Code>{stack}</Code>
-        </Box>
-      )}
-    </Container>
+    <AppTheme>
+      <Container component='main' pt='xl' p='md' mx='auto'>
+        <Title>{message}</Title>
+        <Text>{details}</Text>
+        {stack && (
+          <Box component='pre' w='100%' style={{ overflowX: 'auto' }} p='md'>
+            <Code>{stack}</Code>
+          </Box>
+        )}
+      </Container>
+    </AppTheme>
   );
 }

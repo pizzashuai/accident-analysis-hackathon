@@ -57,7 +57,7 @@ Your goal is to analyze detection data from video processing to determine if a c
 
 CRITICAL REQUIREMENTS:
 - Every event citation must include frame number, timestamp, and key numeric metrics (IoU, distance, speed)
-- Verify units: distances in meters, speeds in m/s or mph, time in seconds
+- Verify units: distances in miles, speeds in miles per hour (MPH), time in seconds
 - Use the available tools to gather data and make informed decisions
 - Surface any missing metadata as warnings
 - Distinguish between actual collisions and near-miss events

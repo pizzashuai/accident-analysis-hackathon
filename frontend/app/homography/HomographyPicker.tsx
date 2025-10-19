@@ -150,14 +150,14 @@ export function HomographyPicker({
   useEffect(() => {
     if (session) {
       // Convert backend pairs to frontend format
-      const convertedPairs: PointPair[] = session.pairs.map(
+      const convertedPairs: PointPair[] = session.pairs?.map(
         (pair: HomographyPairPublic) => ({
           id: pair.id,
           a: { xNorm: pair.image_x_norm, yNorm: pair.image_y_norm },
           b: { lat: pair.map_lat, lng: pair.map_lng },
         })
       );
-      setPairs(convertedPairs);
+      setPairs(convertedPairs || []);
 
       // Load screenshot if available
       if (session.screenshot_asset_id) {
@@ -887,9 +887,9 @@ export function HomographyPicker({
       {isSolved && session?.model && (
         <HomographyMatrixDisplay
           matrix={session.model.matrix_data}
-          error={session.model.reprojection_error}
-          inlierCount={session.model.meta?.inlier_count}
-          totalPairs={session.model.meta?.total_pairs}
+          error={session.model.reprojection_error ?? undefined}
+          inlierCount={typeof session.model.meta?.inlier_count === 'number' ? session.model.meta.inlier_count : undefined}
+          totalPairs={typeof session.model.meta?.total_pairs === 'number' ? session.model.meta.total_pairs : undefined}
         />
       )}
     </Stack>

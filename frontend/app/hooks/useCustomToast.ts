@@ -19,7 +19,19 @@ const useCustomToast = () => {
     });
   };
 
-  return { showToast };
+  const showSuccessToast = (message: string) => {
+    showToast(message, 'success');
+  };
+
+  const showErrorToast = (message: string) => {
+    showToast(message, 'error');
+  };
+
+  const showInfoToast = (message: string) => {
+    showToast(message, 'info');
+  };
+
+  return { showToast, showSuccessToast, showErrorToast, showInfoToast };
 };
 
 export default useCustomToast;

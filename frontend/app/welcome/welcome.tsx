@@ -36,7 +36,7 @@ export function Welcome() {
         </Flex>
 
         <Container size='xl' w='100%'>
-          <HomographyPicker />
+          <HomographyPicker projectId="demo-project" />
         </Container>
 
         <Stack maw={300} w='100%' gap='md' px='md' mt='xl'>
