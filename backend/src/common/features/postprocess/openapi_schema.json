@@ -1,0 +1,205 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Accident Analysis Tools API",
+    "version": "1.0.0",
+    "description": "API for analyzing vehicle collision data from video detections"
+  },
+  "paths": {
+    "/tools/load_detections": {
+      "post": {
+        "summary": "Load detection data",
+        "description": "Load detection data for specified track IDs from the detections JSONL file",
+        "operationId": "loadDetections",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "track_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "description": "List of track IDs to load"
+                  },
+                  "frame_range": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Optional frame range [start, end]"
+                  },
+                  "require_pairing": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                },
+                "required": [
+                  "track_ids"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully loaded detections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "total_frames": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools/compute_pair_metrics": {
+      "post": {
+        "summary": "Compute collision metrics",
+        "description": "Compute IoU, distances, and speeds for paired detections",
+        "operationId": "computePairMetrics",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "iou_threshold": {
+                    "type": "number",
+                    "default": 0.01
+                  },
+                  "vehicle_length_m": {
+                    "type": "number",
+                    "default": 4.5
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully computed metrics"
+          }
+        }
+      }
+    },
+    "/tools/trace_impact_window": {
+      "post": {
+        "summary": "Trace impact window",
+        "description": "Detect collision events and identify impact frames",
+        "operationId": "traceImpactWindow",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "iou_threshold": {
+                    "type": "number",
+                    "default": 0.01
+                  },
+                  "distance_threshold_m": {
+                    "type": "number",
+                    "default": 5.0
+                  },
+                  "persistence_frames": {
+                    "type": "integer",
+                    "default": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully traced impact window"
+          }
+        }
+      }
+    },
+    "/tools/build_timeline": {
+      "post": {
+        "summary": "Build event timeline",
+        "description": "Generate structured timeline from approach to separation",
+        "operationId": "buildTimeline",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "padding_frames": {
+                    "type": "integer",
+                    "default": 10
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully built timeline"
+          }
+        }
+      }
+    },
+    "/tools/report_assumptions": {
+      "post": {
+        "summary": "Report data quality issues",
+        "description": "Identify missing data and assumptions",
+        "operationId": "reportAssumptions",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "warn_if_missing": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [
+                      "world_coords",
+                      "speed_mph"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully reported assumptions"
+          }
+        }
+      }
+    }
+  }
+}

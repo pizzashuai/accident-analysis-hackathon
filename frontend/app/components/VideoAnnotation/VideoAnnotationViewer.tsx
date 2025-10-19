@@ -804,7 +804,7 @@ export const VideoAnnotationViewer = ({
           <Text size='sm' c='dimmed'>
             {runId
               ? 'Live detection overlay from processed video analysis. Toggle tracks to focus on relevant vehicles.'
-              : 'Overlay detections from JSONL (as produced by backend/src/common/features/process-video) onto the project video. Toggle tracks to focus on relevant vehicles without rendering a new video file.'}
+              : 'Overlay detections from JSONL. Toggle tracks to focus on relevant vehicles without rendering a new video file.'}
           </Text>
         </Stack>
 
