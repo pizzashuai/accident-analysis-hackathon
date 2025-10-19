@@ -29,6 +29,7 @@ OpenAPI.BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 OpenAPI.TOKEN = async () => {
   return localStorage.getItem('access_token') || '';
 };
+OpenAPI.WITH_CREDENTIALS = true;
 
 const queryClient = new QueryClient({
   defaultOptions: {

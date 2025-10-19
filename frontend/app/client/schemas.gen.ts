@@ -1081,6 +1081,40 @@ export const ProjectsPublicSchema = {
     title: 'ProjectsPublic'
 } as const;
 
+export const StartAnalysisRequestSchema = {
+    properties: {
+        run_id: {
+            type: 'string',
+            title: 'Run Id'
+        }
+    },
+    type: 'object',
+    required: ['run_id'],
+    title: 'StartAnalysisRequest',
+    description: 'Request model for starting LLM analysis.'
+} as const;
+
+export const StartAnalysisResponseSchema = {
+    properties: {
+        analysis_id: {
+            type: 'string',
+            title: 'Analysis Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: ['analysis_id', 'status', 'message'],
+    title: 'StartAnalysisResponse',
+    description: 'Response model for starting LLM analysis.'
+} as const;
+
 export const TokenSchema = {
     properties: {
         access_token: {

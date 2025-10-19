@@ -31,6 +31,7 @@ import { Link, useNavigate } from 'react-router';
 import { CreateProjectModal } from '~/components/Projects/CreateProjectModal';
 import { ProjectWorkflow } from '~/components/Projects/ProjectWorkflow';
 import { VideoAnnotationViewer } from '~/components/VideoAnnotation/VideoAnnotationViewer';
+import { LLMAnalysisPanel } from '~/components/VideoAnnotation/LLMAnalysisPanel';
 import {
   useProject,
   useDeleteProject,
@@ -189,6 +190,11 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
     );
   };
 
+  // Get the latest completed run ID for LLM analysis
+  const latestCompletedRun = processingRuns?.data?.find(
+    (run: any) => run.status === 'completed'
+  );
+
   const steps = [
     {
       label: 'Setup & Processing',
@@ -325,6 +331,12 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                       <Text size='sm'>Loading video URL...</Text>
                     </Alert>
                   )}
+
+                  {/* LLM Analysis Panel */}
+                  <LLMAnalysisPanel
+                    projectId={params.projectId}
+                    runId={latestCompletedRun?.id}
+                  />
                 </>
               ) : (
                 <Card withBorder p='xl' ta='center'>

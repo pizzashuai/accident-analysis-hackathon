@@ -261,6 +261,22 @@ export type src__common__features__project__schemas__Message = {
     message: string;
 };
 
+/**
+ * Request model for starting LLM analysis.
+ */
+export type StartAnalysisRequest = {
+    run_id: string;
+};
+
+/**
+ * Response model for starting LLM analysis.
+ */
+export type StartAnalysisResponse = {
+    analysis_id: string;
+    status: string;
+    message: string;
+};
+
 export type Token = {
     access_token: string;
     token_type?: string;
@@ -316,6 +332,20 @@ export type ValidationError = {
     msg: string;
     type: string;
 };
+
+export type LlmAnalysisStartLlmAnalysisData = {
+    projectId: string;
+    requestBody: StartAnalysisRequest;
+};
+
+export type LlmAnalysisStartLlmAnalysisResponse = (StartAnalysisResponse);
+
+export type LlmAnalysisStreamLlmAnalysisEventsData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type LlmAnalysisStreamLlmAnalysisEventsResponse = (unknown);
 
 export type LoginLoginAccessTokenData = {
     formData: Body_login_login_access_token;

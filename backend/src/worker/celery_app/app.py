@@ -15,3 +15,6 @@ app = Celery("worker", broker=redis_url, backend=redis_url)
 # Discover tasks within the same package regardless of its import path.
 package_root = __name__.rsplit(".", 1)[0]
 app.autodiscover_tasks([package_root])
+
+# Explicitly import tasks to ensure they are registered
+from . import tasks

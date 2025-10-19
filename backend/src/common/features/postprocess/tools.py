@@ -10,85 +10,6 @@ from pathlib import Path
 from typing import Any
 
 
-def calculate_compass_direction(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> str:
-    """
-    Calculate compass direction from lat/lon coordinates.
-
-    Args:
-        lat1, lon1: Starting coordinates
-        lat2, lon2: Ending coordinates
-
-    Returns:
-        Compass direction (e.g., "North", "Northeast", "East", etc.)
-    """
-    # Calculate bearing in degrees
-    lat1_rad = math.radians(lat1)
-    lat2_rad = math.radians(lat2)
-    delta_lon = math.radians(lon2 - lon1)
-
-    y = math.sin(delta_lon) * math.cos(lat2_rad)
-    x = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(
-        lat2_rad
-    ) * math.cos(delta_lon)
-
-    bearing_rad = math.atan2(y, x)
-    bearing_deg = math.degrees(bearing_rad)
-
-    # Normalize to 0-360 degrees
-    bearing_deg = (bearing_deg + 360) % 360
-
-    # Convert to compass direction
-    directions = [
-        (0, 11.25, "North"),
-        (11.25, 33.75, "Northeast"),
-        (33.75, 56.25, "Northeast"),
-        (56.25, 78.75, "East"),
-        (78.75, 101.25, "East"),
-        (101.25, 123.75, "Southeast"),
-        (123.75, 146.25, "Southeast"),
-        (146.25, 168.75, "South"),
-        (168.75, 191.25, "South"),
-        (191.25, 213.75, "Southwest"),
-        (213.75, 236.25, "Southwest"),
-        (236.25, 258.75, "West"),
-        (258.75, 281.25, "West"),
-        (281.25, 303.75, "Northwest"),
-        (303.75, 326.25, "Northwest"),
-        (326.25, 348.75, "North"),
-        (348.75, 360, "North"),
-    ]
-
-    for start, end, direction in directions:
-        if start <= bearing_deg < end:
-            return direction
-
-    return "North"  # Default fallback
-
-
-def calculate_movement_description(
-    lat1: float, lon1: float, lat2: float, lon2: float, speed_mph: float | None = None
-) -> str:
-    """
-    Generate a human-readable description of vehicle movement.
-
-    Args:
-        lat1, lon1: Starting coordinates
-        lat2, lon2: Ending coordinates
-        speed_mph: Speed in miles per hour
-
-    Returns:
-        Description like "moving Northeast at 25 mph" or "traveling South"
-    """
-    direction = calculate_compass_direction(lat1, lon1, lat2, lon2)
-
-    if speed_mph is not None and speed_mph > 0:
-        return f"moving {direction} at {speed_mph:.1f} mph"
-    else:
-        return f"traveling {direction}"
-
-
 @dataclass
 class Detection:
     """Represents a single detection record."""
@@ -129,9 +50,6 @@ class MetricRow:
     distance_below_threshold: bool
     collision_candidate: bool
     metadata: dict[str, Any]
-    # New direction fields
-    vehicle_directions: list[str] | None = None
-    movement_descriptions: list[str] | None = None
 
 
 def load_detections(
@@ -283,7 +201,7 @@ def compute_pair_metrics(
     pairs: list[dict[str, Any]],
     iou_threshold: float = 0.01,
     vehicle_length_m: float = 4.5,
-    include_headings: bool = True,
+    include_headings: bool = False,
 ) -> list[MetricRow]:
     """
     Compute metrics for paired detections.
@@ -341,35 +259,6 @@ def compute_pair_metrics(
             # For now, we'll skip this calculation
             pass
 
-        # Calculate vehicle directions and movement descriptions
-        vehicle_directions = []
-        movement_descriptions = []
-
-        if include_headings:
-            for det in [det1, det2]:
-                if det.get("world_coords") and len(det["world_coords"]) >= 2:
-                    # For now, we'll use a simple approach - in a real implementation,
-                    # you'd want to calculate direction from previous frame
-                    # This is a placeholder that shows the concept
-                    lat, lon = det["world_coords"]
-                    # Use a small offset to simulate movement direction
-                    # In practice, you'd compare with previous frame
-                    direction = calculate_compass_direction(
-                        lat, lon, lat + 0.0001, lon + 0.0001
-                    )
-                    vehicle_directions.append(direction)
-
-                    speed = det.get("speed_mph")
-                    movement_desc = calculate_movement_description(
-                        lat, lon, lat + 0.0001, lon + 0.0001, speed
-                    )
-                    movement_descriptions.append(movement_desc)
-                else:
-                    vehicle_directions.append("Unknown")
-                    movement_descriptions.append("Unknown direction")
-        else:
-            vehicle_directions = None
-            movement_descriptions = None
 
         # Determine flags
         iou_exceeds_threshold = iou > iou_threshold
@@ -395,8 +284,6 @@ def compute_pair_metrics(
                 "confidences": [det1.get("conf", 0), det2.get("conf", 0)],
                 "class_names": [det1.get("class_name", ""), det2.get("class_name", "")],
             },
-            vehicle_directions=vehicle_directions,
-            movement_descriptions=movement_descriptions,
         )
 
         metric_rows.append(metric_row)
@@ -645,10 +532,6 @@ def build_timeline(
                         "pixel_distance_px": row.pixel_center_distance_px,
                         "relative_speed_mps": row.relative_speed_mps,
                     },
-                    "directions": {
-                        "vehicle_directions": row.vehicle_directions,
-                        "movement_descriptions": row.movement_descriptions,
-                    },
                     "narrative": _generate_narrative(stage, row, impact_summary),
                 }
                 timeline.append(entry)
@@ -666,7 +549,6 @@ def build_timeline(
                         "Speed Diff (mph)": f"{row.relative_speed_mps * 2.237:.1f}"
                         if row.relative_speed_mps
                         else "N/A",
-                        "Directions": f"{row.vehicle_directions[0] if row.vehicle_directions else 'Unknown'} vs {row.vehicle_directions[1] if row.vehicle_directions and len(row.vehicle_directions) > 1 else 'Unknown'}",
                     }
                 )
 
@@ -682,13 +564,11 @@ def build_timeline(
 def _generate_narrative(
     stage: str, row: MetricRow, impact_summary: dict[str, Any]
 ) -> str:
-    """Generate narrative text for a timeline stage with everyday language and directions."""
+    """Generate narrative text for a timeline stage with everyday language."""
     timestamp_str = f"{row.timestamp:.3f}s"
 
     # Get vehicle information
     track_ids = row.track_ids
-    directions = row.vehicle_directions or ["Unknown", "Unknown"]
-    movement_descs = row.movement_descriptions or ["Unknown", "Unknown"]
 
     if stage == "approach":
         distance_desc = (
@@ -696,56 +576,16 @@ def _generate_narrative(
             if row.world_distance_m
             else "approaching"
         )
-        vehicle1_desc = (
-            f"Vehicle {track_ids[0]} ({movement_descs[0]})"
-            if movement_descs[0] != "Unknown"
-            else f"Vehicle {track_ids[0]}"
-        )
-        vehicle2_desc = (
-            f"Vehicle {track_ids[1]} ({movement_descs[1]})"
-            if movement_descs[1] != "Unknown"
-            else f"Vehicle {track_ids[1]}"
-        )
-        return f"At {timestamp_str}: {vehicle1_desc} and {vehicle2_desc} are {distance_desc}"
+        return f"At {timestamp_str}: Vehicle {track_ids[0]} and Vehicle {track_ids[1]} are {distance_desc}"
 
     elif stage == "first_contact":
-        vehicle1_desc = (
-            f"Vehicle {track_ids[0]} ({directions[0]})"
-            if directions[0] != "Unknown"
-            else f"Vehicle {track_ids[0]}"
-        )
-        vehicle2_desc = (
-            f"Vehicle {track_ids[1]} ({directions[1]})"
-            if directions[1] != "Unknown"
-            else f"Vehicle {track_ids[1]}"
-        )
-        return f"At {timestamp_str}: First contact detected between {vehicle1_desc} and {vehicle2_desc}"
+        return f"At {timestamp_str}: First contact detected between Vehicle {track_ids[0]} and Vehicle {track_ids[1]}"
 
     elif stage == "peak_overlap":
-        vehicle1_desc = (
-            f"Vehicle {track_ids[0]} ({directions[0]})"
-            if directions[0] != "Unknown"
-            else f"Vehicle {track_ids[0]}"
-        )
-        vehicle2_desc = (
-            f"Vehicle {track_ids[1]} ({directions[1]})"
-            if directions[1] != "Unknown"
-            else f"Vehicle {track_ids[1]}"
-        )
-        return f"At {timestamp_str}: Maximum overlap between {vehicle1_desc} and {vehicle2_desc}"
+        return f"At {timestamp_str}: Maximum overlap between Vehicle {track_ids[0]} and Vehicle {track_ids[1]}"
 
     elif stage == "separation":
-        vehicle1_desc = (
-            f"Vehicle {track_ids[0]} ({movement_descs[0]})"
-            if movement_descs[0] != "Unknown"
-            else f"Vehicle {track_ids[0]}"
-        )
-        vehicle2_desc = (
-            f"Vehicle {track_ids[1]} ({movement_descs[1]})"
-            if movement_descs[1] != "Unknown"
-            else f"Vehicle {track_ids[1]}"
-        )
-        return f"At {timestamp_str}: Vehicles separating - {vehicle1_desc} and {vehicle2_desc}"
+        return f"At {timestamp_str}: Vehicles separating - Vehicle {track_ids[0]} and Vehicle {track_ids[1]}"
 
     else:
         return f"At {timestamp_str}: Stage {stage} at frame {row.frame}"

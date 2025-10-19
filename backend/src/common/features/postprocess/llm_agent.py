@@ -9,14 +9,16 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import logging
 
 import boto3
 from botocore.exceptions import ClientError
 
 from ...config import settings
 from .agent_tools import AgentToolHandler
+from .event_publisher import LLMEventPublisher
 
-
+logger = logging.getLogger(__name__)
 @dataclass
 class LLMAgentConfig:
     """Configuration for the LLM-powered accident analysis agent."""
@@ -66,7 +68,6 @@ CRITICAL REQUIREMENTS:
 - Write in clear, everyday language that non-technical people can understand
 - Focus on describing what happened rather than technical calculations
 - Include specific timestamps and frame numbers for all events
-- Describe vehicle movements and directions using compass directions (North, South, East, West, Northeast, etc.)
 - Create a chronological timeline of events with clear descriptions
 - Minimize technical jargon and visual calculations
 - Use descriptive language about vehicle behavior and interactions
@@ -75,25 +76,24 @@ CRITICAL REQUIREMENTS:
 
 AVAILABLE TOOLS:
 1. load_detections - Load detection data for specified track IDs
-2. compute_pair_metrics - Calculate collision metrics (IoU, distances, speeds, directions)
+2. compute_pair_metrics - Calculate collision metrics (IoU, distances, speeds)
 3. trace_impact_window - Detect collision events and impact windows
-4. build_timeline - Generate structured event timeline with directions
+4. build_timeline - Generate structured event timeline
 5. report_assumptions - Identify data quality issues
 
 ANALYSIS WORKFLOW:
 1. Start by loading the detection data for the specified track IDs
-2. Compute collision metrics to understand vehicle interactions and directions
+2. Compute collision metrics to understand vehicle interactions
 3. Trace impact windows to determine if collision occurred
-4. Build timeline of events with specific timestamps and directional descriptions
+4. Build timeline of events with specific timestamps and descriptions
 5. Report data quality issues and assumptions
 6. Generate a comprehensive analysis report in everyday language
 
 REPORT GENERATION:
 - Write in clear, conversational language that tells the story of what happened
-- Focus on describing vehicle movements, speeds, and directions
+- Focus on describing vehicle movements and speeds
 - Include timestamps for all significant events
 - Describe the sequence of events chronologically
-- Use compass directions to describe vehicle movement patterns
 - Minimize technical calculations and focus on narrative descriptions
 - Include specific frame numbers and timestamps for reference
 - Highlight any data limitations or assumptions in simple terms
@@ -101,12 +101,21 @@ REPORT GENERATION:
 
 Generate a professional, easy-to-understand accident analysis report that tells the story of what happened."""
 
-    def __init__(self, config: LLMAgentConfig):
+    def __init__(
+        self,
+        config: LLMAgentConfig,
+        event_publisher: LLMEventPublisher | None = None,
+        analysis_id: str | None = None,
+    ):
         """Initialize the LLM agent."""
         self.config = config
         self.tool_handler = AgentToolHandler(detections_file=config.detections_file)
         self.conversation_history: list[dict[str, Any]] = []
         self.execution_log: list[dict[str, Any]] = []
+
+        # Event publishing
+        self.event_publisher = event_publisher
+        self.analysis_id = analysis_id
 
         # Model management
         self.current_model_index = 0
@@ -115,6 +124,67 @@ Generate a professional, easy-to-understand accident analysis report that tells 
 
         # Initialize AWS Bedrock client
         self.bedrock_client = self._initialize_bedrock_client()
+
+    def _publish_event(self, event_type: str, data: dict[str, Any]) -> None:
+        """Publish an event if event publisher is available."""
+        if self.event_publisher and self.analysis_id:
+            try:
+                logger.info(f"Publishing event {event_type} for analysis {self.analysis_id}: {data}")
+                if event_type == "thinking_start":
+                    self.event_publisher.publish_thinking_start(
+                        self.analysis_id, data.get("message", "Starting analysis...")
+                    )
+                elif event_type == "thinking_content":
+                    self.event_publisher.publish_thinking_content(
+                        self.analysis_id, data["content"]
+                    )
+                elif event_type == "thinking_end":
+                    self.event_publisher.publish_thinking_end(
+                        self.analysis_id, data.get("message", "Analysis complete")
+                    )
+                elif event_type == "tool_call_start":
+                    self.event_publisher.publish_tool_call_start(
+                        self.analysis_id, data["tool"], data["input"]
+                    )
+                elif event_type == "tool_call_result":
+                    self.event_publisher.publish_tool_call_result(
+                        self.analysis_id, data["tool"], data["result"]
+                    )
+                elif event_type == "report_start":
+                    self.event_publisher.publish_report_start(
+                        self.analysis_id,
+                        data.get("message", "Generating final report..."),
+                    )
+                elif event_type == "report_content":
+                    self.event_publisher.publish_report_content(
+                        self.analysis_id, data["content"]
+                    )
+                elif event_type == "report_end":
+                    self.event_publisher.publish_report_end(
+                        self.analysis_id, data.get("message", "Report complete")
+                    )
+                elif event_type == "error":
+                    self.event_publisher.publish_error(
+                        self.analysis_id, data["error"], data.get("details")
+                    )
+                elif event_type == "model_switch":
+                    self.event_publisher.publish_model_switch(
+                        self.analysis_id, data["old_model"], data["new_model"]
+                    )
+                elif event_type == "iteration_update":
+                    self.event_publisher.publish_iteration_update(
+                        self.analysis_id, data["iteration"], data["max_iterations"]
+                    )
+                elif event_type == "collision_detected":
+                    self.event_publisher.publish_collision_detected(
+                        self.analysis_id, data.get("message", "Collision detected!")
+                    )
+                logger.info(f"Successfully published event {event_type}")
+            except Exception as e:
+                logger.error(f"Failed to publish event {event_type}: {e}")
+                print(f"Warning: Failed to publish event {event_type}: {e}")
+        else:
+            logger.warning(f"No event publisher or analysis_id available for event {event_type}")
 
     def _is_throttling_error(self, error: Exception) -> bool:
         """Check if the error is a throttling error."""
@@ -132,6 +202,7 @@ Generate a professional, easy-to-understand accident analysis report that tells 
 
     def _switch_to_next_model(self) -> bool:
         """Switch to the next available model. Returns True if successful, False if no more models."""
+        old_model = self.current_model_id
         self.current_model_index += 1
 
         if self.current_model_index >= len(self.config.bedrock_models):
@@ -147,6 +218,12 @@ Generate a professional, easy-to-understand accident analysis report that tells 
             self.model_attempts[self.current_model_id] = 0
 
         print(f"\n🔄 Switching to model: {self.current_model_id}")
+
+        # Publish model switch event
+        self._publish_event(
+            "model_switch", {"old_model": old_model, "new_model": self.current_model_id}
+        )
+
         return True
 
     def _initialize_bedrock_client(self):
@@ -186,11 +263,20 @@ Generate a professional, easy-to-understand accident analysis report that tells 
             Complete analysis results with LLM-generated report
         """
         if not self.bedrock_client:
+            error_msg = (
+                "Bedrock client not available. Please configure AWS credentials."
+            )
+            self._publish_event("error", {"error": error_msg})
             return {
                 "success": False,
-                "error": "Bedrock client not available. Please configure AWS credentials.",
+                "error": error_msg,
                 "suggestion": "Run 'aws configure' or set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY environment variables",
             }
+
+        # Publish analysis start event
+        self._publish_event(
+            "thinking_start", {"message": "Starting accident analysis..."}
+        )
 
         print("=" * 80)
         print("LLM-POWERED ACCIDENT ANALYSIS")
@@ -217,11 +303,20 @@ Generate a professional, easy-to-understand accident analysis report that tells 
             iteration += 1
             print(f"\n[ITERATION {iteration}]")
 
+            # Publish iteration update
+            self._publish_event(
+                "iteration_update",
+                {"iteration": iteration, "max_iterations": self.config.max_iterations},
+            )
+
             # Call Claude with tool use capability
             response = self._call_bedrock_with_tools()
 
             # Check if we got a final answer
             if self._is_final_answer(response):
+                self._publish_event(
+                    "report_start", {"message": "Generating final report..."}
+                )
                 final_report = self._extract_final_report(response)
                 print("\n✓ Analysis complete - LLM generated final report")
                 break
@@ -247,10 +342,43 @@ Generate a professional, easy-to-understand accident analysis report that tells 
 
         if not final_report:
             print("\n⚠ Max iterations reached without final report")
+            self._publish_event(
+                "report_start",
+                {"message": "Requesting final report after max iterations..."},
+            )
             final_report = self._request_final_report()
+
+        # Publish thinking end and report content
+        self._publish_event("thinking_end", {"message": "Analysis reasoning complete"})
+
+        # Stream the report content in chunks
+        if final_report:
+            self._stream_report_content(final_report)
 
         # Format and return the report
         return self._format_llm_report(final_report, iteration)
+
+    def _stream_report_content(self, report_text: str) -> None:
+        """Stream report content in chunks for real-time display."""
+        if not report_text:
+            return
+
+        # Split report into chunks for streaming effect
+        chunk_size = 100  # Characters per chunk
+        chunks = [
+            report_text[i : i + chunk_size]
+            for i in range(0, len(report_text), chunk_size)
+        ]
+
+        for chunk in chunks:
+            self._publish_event("report_content", {"content": chunk})
+            # Small delay to simulate streaming (optional)
+            import time
+
+            time.sleep(0.05)  # 50ms delay between chunks
+
+        # Publish report end
+        self._publish_event("report_end", {"message": "Report generation complete"})
 
     def _create_initial_query(self) -> str:
         """Create the initial query for the LLM."""
@@ -374,7 +502,7 @@ Start by loading the detection data for the specified tracks."""
             {
                 "toolSpec": {
                     "name": "compute_pair_metrics",
-                    "description": "Compute collision metrics (IoU, distances, speeds, directions) for paired detections. Returns enriched data with flags for collision candidates and compass directions.",
+                    "description": "Compute collision metrics (IoU, distances, speeds) for paired detections. Returns enriched data with flags for collision candidates.",
                     "inputSchema": {
                         "json": {
                             "type": "object",
@@ -391,8 +519,8 @@ Start by loading the detection data for the specified tracks."""
                                 },
                                 "include_headings": {
                                     "type": "boolean",
-                                    "description": "Whether to compute heading differences and compass directions",
-                                    "default": True,
+                                    "description": "Whether to compute heading differences",
+                                    "default": False,
                                 },
                             },
                             "required": [],
@@ -440,7 +568,7 @@ Start by loading the detection data for the specified tracks."""
             {
                 "toolSpec": {
                     "name": "build_timeline",
-                    "description": "Build a structured timeline of events from approach to separation with compass directions and everyday language descriptions. Returns timeline entries with frame, timestamp, metrics, directions, and narrative.",
+                    "description": "Build a structured timeline of events from approach to separation with everyday language descriptions. Returns timeline entries with frame, timestamp, metrics, and narrative.",
                     "inputSchema": {
                         "json": {
                             "type": "object",
@@ -538,10 +666,20 @@ Start by loading the detection data for the specified tracks."""
                 print(f"\n  → Tool: {tool_name}")
                 print(f"    Input: {json.dumps(tool_input, indent=2)}")
 
+                # Publish tool call start event
+                self._publish_event(
+                    "tool_call_start", {"tool": tool_name, "input": tool_input}
+                )
+
                 # Execute the tool
                 result = self._execute_tool(tool_name, tool_input)
 
                 print(f"    Result: {result.get('message', 'Success')}")
+
+                # Publish tool call result event
+                self._publish_event(
+                    "tool_call_result", {"tool": tool_name, "result": result}
+                )
 
                 # Format tool result for Claude
                 tool_results.append(
@@ -564,6 +702,20 @@ Start by loading the detection data for the specified tracks."""
         result = self.tool_handler.handle_tool_call(tool_name, tool_input)
 
         self.execution_log[-1]["result"] = result
+
+        # Publish collision detection events for specific tools
+        if tool_name == "trace_impact_window" and result.get("success"):
+            collision_detected = result.get("collision_detected", False)
+            if collision_detected:
+                self._publish_event(
+                    "collision_detected", 
+                    {"message": f"Result: Collision DETECTED - {result.get('message', '')}"}
+                )
+            else:
+                self._publish_event(
+                    "collision_detected", 
+                    {"message": f"Result: Collision NOT DETECTED - {result.get('message', '')}"}
+                )
 
         return result
 
