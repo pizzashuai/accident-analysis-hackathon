@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, ProjectsGetArtifactContentData, ProjectsGetArtifactContentResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, ProjectsGetArtifactContentData, ProjectsGetArtifactContentResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse, VideoAnnotationFilterDetectionsByTracksData, VideoAnnotationFilterDetectionsByTracksResponse, VideoAnnotationGetFilteredArtifactDownloadUrlData, VideoAnnotationGetFilteredArtifactDownloadUrlResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -871,6 +871,56 @@ export class UsersService {
             url: '/api/v1/users/{user_id}',
             path: {
                 user_id: data.userId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
+export class VideoAnnotationService {
+    /**
+     * Filter Detections By Tracks
+     * Filter detection JSONL file by track IDs and save as new artifact.
+     *
+     * This endpoint:
+     * 1. Downloads the original JSONL artifact from S3
+     * 2. Filters detections to only include specified track IDs
+     * 3. Creates a new filtered JSONL file
+     * 4. Uploads the filtered file to S3 as a new artifact
+     * 5. Returns metadata about the filtered file
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns FilterDetectionsResponse Successful Response
+     * @throws ApiError
+     */
+    public static filterDetectionsByTracks(data: VideoAnnotationFilterDetectionsByTracksData): CancelablePromise<VideoAnnotationFilterDetectionsByTracksResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/video-annotation/filter-detections',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Filtered Artifact Download Url
+     * Get presigned download URL for a filtered artifact.
+     * @param data The data for the request.
+     * @param data.artifactId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static getFilteredArtifactDownloadUrl(data: VideoAnnotationGetFilteredArtifactDownloadUrlData): CancelablePromise<VideoAnnotationGetFilteredArtifactDownloadUrlResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/video-annotation/artifacts/{artifact_id}/download',
+            path: {
+                artifact_id: data.artifactId
             },
             errors: {
                 422: 'Validation Error'

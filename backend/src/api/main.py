@@ -2,13 +2,14 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
-from src.api.routes import login_route, private_route, projects_route, users_route
+from src.api.routes import login_route, private_route, projects_route, users_route, video_annotation_route
 from src.common.config import settings
 
 api_router = APIRouter()
 api_router.include_router(login_route.router)
 api_router.include_router(users_route.router)
 api_router.include_router(projects_route.router)
+api_router.include_router(video_annotation_route.router)
 
 if settings.ENVIRONMENT == "local":
     api_router.include_router(private_route.router)

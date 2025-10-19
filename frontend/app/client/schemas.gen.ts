@@ -228,6 +228,66 @@ export const DetectionsPublicSchema = {
     title: 'DetectionsPublic'
 } as const;
 
+export const FilterDetectionsRequestSchema = {
+    properties: {
+        track_ids: {
+            items: {
+                type: 'integer'
+            },
+            type: 'array',
+            title: 'Track Ids'
+        },
+        artifact_id: {
+            type: 'string',
+            title: 'Artifact Id'
+        },
+        filename: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Filename'
+        }
+    },
+    type: 'object',
+    required: ['track_ids', 'artifact_id'],
+    title: 'FilterDetectionsRequest',
+    description: 'Request model for filtering detections by track IDs.'
+} as const;
+
+export const FilterDetectionsResponseSchema = {
+    properties: {
+        artifact_id: {
+            type: 'string',
+            title: 'Artifact Id'
+        },
+        filename: {
+            type: 'string',
+            title: 'Filename'
+        },
+        track_count: {
+            type: 'integer',
+            title: 'Track Count'
+        },
+        detection_count: {
+            type: 'integer',
+            title: 'Detection Count'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: ['artifact_id', 'filename', 'track_count', 'detection_count', 'message'],
+    title: 'FilterDetectionsResponse',
+    description: 'Response model for filtered detections.'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {

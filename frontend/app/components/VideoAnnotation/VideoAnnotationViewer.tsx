@@ -14,12 +14,15 @@ import {
   Switch,
   Text,
   Loader,
+  Alert,
 } from '@mantine/core';
 import {
   IconEraser,
   IconEye,
   IconEyeOff,
   IconUpload,
+  IconDownload,
+  IconFilter,
 } from '@tabler/icons-react';
 import {
   useDetections,
@@ -270,6 +273,9 @@ export const VideoAnnotationViewer = ({
   const [showLabels, setShowLabels] = useState(true);
   const [focusedTrackId, setFocusedTrackId] = useState<number | null>(null);
   const [currentFrame, setCurrentFrame] = useState(0);
+  const [isFiltering, setIsFiltering] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [filterSuccess, setFilterSuccess] = useState<string | null>(null);
 
   // Get available processing runs for API detection selection
   const { data: processingRuns } = useProcessingRuns(
@@ -483,14 +489,21 @@ export const VideoAnnotationViewer = ({
       }
       return [...prev, trackId];
     });
+    // Clear filter messages when track selection changes
+    setFilterError(null);
+    setFilterSuccess(null);
   }, []);
 
   const clearSelections = useCallback(() => {
     setEnabledTrackIds([]);
+    setFilterError(null);
+    setFilterSuccess(null);
   }, []);
 
   const selectAllTracks = useCallback(() => {
     setEnabledTrackIds(trackSummaries.map((track) => track.trackId));
+    setFilterError(null);
+    setFilterSuccess(null);
   }, [trackSummaries]);
 
   const handleArtifactSelect = useCallback(
@@ -513,6 +526,74 @@ export const VideoAnnotationViewer = ({
       setSelectedFile(null);
     }
   }, [useApiDetections]);
+
+  const handleFilterAndSave = useCallback(async () => {
+    if (!enabledTrackIds.length) {
+      setFilterError('Please select at least one track to filter');
+      return;
+    }
+
+    // Determine which artifact to use for filtering
+    let artifactIdToUse: string | null = null;
+
+    if (useApiDetections && effectiveRunId) {
+      // For API detections, we need to find the JSONL artifact from the run
+      // This would require additional API calls to get the run's artifacts
+      setFilterError(
+        'Filtering API detections is not yet supported. Please use a JSONL file.'
+      );
+      return;
+    } else if (selectedArtifactId) {
+      artifactIdToUse = selectedArtifactId;
+    } else if (selectedFile) {
+      setFilterError(
+        'Please use an artifact JSONL file for filtering. Uploaded files are not supported.'
+      );
+      return;
+    } else {
+      setFilterError('No JSONL file available for filtering');
+      return;
+    }
+
+    if (!artifactIdToUse) {
+      setFilterError('No valid artifact found for filtering');
+      return;
+    }
+
+    setIsFiltering(true);
+    setFilterError(null);
+    setFilterSuccess(null);
+
+    try {
+      const { VideoAnnotationService } = await import('../../client/sdk.gen');
+
+      const response = await VideoAnnotationService.filterDetectionsByTracks({
+        requestBody: {
+          track_ids: enabledTrackIds,
+          artifact_id: artifactIdToUse,
+          filename: `filtered_tracks_${enabledTrackIds.join('_')}.jsonl`,
+        },
+      });
+
+      setFilterSuccess(
+        `Successfully filtered ${response.detection_count} detections for ${response.track_count} track(s). ` +
+          `The original file has been replaced with the filtered version.`
+      );
+    } catch (error) {
+      console.error('Error filtering detections:', error);
+      setFilterError(
+        error instanceof Error ? error.message : 'Failed to filter detections'
+      );
+    } finally {
+      setIsFiltering(false);
+    }
+  }, [
+    enabledTrackIds,
+    useApiDetections,
+    effectiveRunId,
+    selectedArtifactId,
+    selectedFile,
+  ]);
 
   const cancelAnimation = useCallback(() => {
     if (animationHandle.current !== null) {
@@ -804,6 +885,16 @@ export const VideoAnnotationViewer = ({
             >
               Clear
             </Button>
+            <Button
+              variant='filled'
+              color='blue'
+              leftSection={<IconFilter size={16} />}
+              onClick={handleFilterAndSave}
+              disabled={!enabledTrackIds.length || isFiltering}
+              loading={isFiltering}
+            >
+              Filter & Replace File
+            </Button>
           </Group>
         </Stack>
 
@@ -813,6 +904,18 @@ export const VideoAnnotationViewer = ({
               {parseError}
             </Text>
           </Card>
+        )}
+
+        {filterError && (
+          <Alert color='red' icon={<IconFilter size={16} />}>
+            <Text size='sm'>{filterError}</Text>
+          </Alert>
+        )}
+
+        {filterSuccess && (
+          <Alert color='green' icon={<IconDownload size={16} />}>
+            <Text size='sm'>{filterSuccess}</Text>
+          </Alert>
         )}
 
         <Group gap='md' wrap='wrap'>

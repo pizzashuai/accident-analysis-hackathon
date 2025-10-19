@@ -52,6 +52,26 @@ export type DetectionsPublic = {
 };
 
 /**
+ * Request model for filtering detections by track IDs.
+ */
+export type FilterDetectionsRequest = {
+    track_ids: Array<(number)>;
+    artifact_id: string;
+    filename?: (string | null);
+};
+
+/**
+ * Response model for filtered detections.
+ */
+export type FilterDetectionsResponse = {
+    artifact_id: string;
+    filename: string;
+    track_count: number;
+    detection_count: number;
+    message: string;
+};
+
+/**
  * Schema for homography model response
  */
 export type HomographyModelPublic = {
@@ -540,3 +560,17 @@ export type UsersDeleteUserRouteData = {
 };
 
 export type UsersDeleteUserRouteResponse = (src__common__features__project__schemas__Message);
+
+export type VideoAnnotationFilterDetectionsByTracksData = {
+    requestBody: FilterDetectionsRequest;
+};
+
+export type VideoAnnotationFilterDetectionsByTracksResponse = (FilterDetectionsResponse);
+
+export type VideoAnnotationGetFilteredArtifactDownloadUrlData = {
+    artifactId: string;
+};
+
+export type VideoAnnotationGetFilteredArtifactDownloadUrlResponse = ({
+    [key: string]: unknown;
+});
