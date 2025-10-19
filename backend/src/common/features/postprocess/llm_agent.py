@@ -60,42 +60,46 @@ class LLMAccidentAnalysisAgent:
 
     SYSTEM_PROMPT = """You are an expert accident reconstruction analyst specializing in vehicle collision analysis from video detection data.
 
-Your task is to analyze vehicle detection data and generate comprehensive accident analysis reports. You have access to specialized tools for data analysis.
+Your task is to analyze vehicle detection data and generate comprehensive accident analysis reports using everyday language that anyone can understand. You have access to specialized tools for data analysis.
 
 CRITICAL REQUIREMENTS:
-- Analyze the detection data thoroughly using available tools
-- Generate reports that match the data characteristics and complexity
-- Include specific frame citations, timestamps, and metrics in your analysis
-- Adapt your report format based on what you find in the data
-- Be precise about collision vs near-miss determinations
-- Highlight data quality issues and assumptions
+- Write in clear, everyday language that non-technical people can understand
+- Focus on describing what happened rather than technical calculations
+- Include specific timestamps and frame numbers for all events
+- Describe vehicle movements and directions using compass directions (North, South, East, West, Northeast, etc.)
+- Create a chronological timeline of events with clear descriptions
+- Minimize technical jargon and visual calculations
+- Use descriptive language about vehicle behavior and interactions
 - ALL DISTANCE MEASUREMENTS MUST BE IN MILES
 - ALL SPEED MEASUREMENTS MUST BE IN MILES PER HOUR (MPH)
 
 AVAILABLE TOOLS:
 1. load_detections - Load detection data for specified track IDs
-2. compute_pair_metrics - Calculate collision metrics (IoU, distances, speeds)
+2. compute_pair_metrics - Calculate collision metrics (IoU, distances, speeds, directions)
 3. trace_impact_window - Detect collision events and impact windows
-4. build_timeline - Generate structured event timeline
+4. build_timeline - Generate structured event timeline with directions
 5. report_assumptions - Identify data quality issues
 
 ANALYSIS WORKFLOW:
 1. Start by loading the detection data for the specified track IDs
-2. Compute collision metrics to understand vehicle interactions
+2. Compute collision metrics to understand vehicle interactions and directions
 3. Trace impact windows to determine if collision occurred
-4. Build timeline of events with specific citations
+4. Build timeline of events with specific timestamps and directional descriptions
 5. Report data quality issues and assumptions
-6. Generate a comprehensive analysis report
+6. Generate a comprehensive analysis report in everyday language
 
 REPORT GENERATION:
-- Let the data guide your report structure and format
-- Include relevant sections based on what you find
-- Use appropriate detail level based on data complexity
-- Include specific metrics, frame numbers, and timestamps
-- Highlight any data limitations or assumptions
-- Provide clear conclusions with supporting evidence
+- Write in clear, conversational language that tells the story of what happened
+- Focus on describing vehicle movements, speeds, and directions
+- Include timestamps for all significant events
+- Describe the sequence of events chronologically
+- Use compass directions to describe vehicle movement patterns
+- Minimize technical calculations and focus on narrative descriptions
+- Include specific frame numbers and timestamps for reference
+- Highlight any data limitations or assumptions in simple terms
+- Provide clear conclusions about what occurred
 
-Generate a professional, data-driven accident analysis report."""
+Generate a professional, easy-to-understand accident analysis report that tells the story of what happened."""
 
     def __init__(self, config: LLMAgentConfig):
         """Initialize the LLM agent."""
@@ -370,7 +374,7 @@ Start by loading the detection data for the specified tracks."""
             {
                 "toolSpec": {
                     "name": "compute_pair_metrics",
-                    "description": "Compute collision metrics (IoU, distances, speeds) for paired detections. Returns enriched data with flags for collision candidates.",
+                    "description": "Compute collision metrics (IoU, distances, speeds, directions) for paired detections. Returns enriched data with flags for collision candidates and compass directions.",
                     "inputSchema": {
                         "json": {
                             "type": "object",
@@ -387,8 +391,8 @@ Start by loading the detection data for the specified tracks."""
                                 },
                                 "include_headings": {
                                     "type": "boolean",
-                                    "description": "Whether to compute heading differences",
-                                    "default": False,
+                                    "description": "Whether to compute heading differences and compass directions",
+                                    "default": True,
                                 },
                             },
                             "required": [],
@@ -436,7 +440,7 @@ Start by loading the detection data for the specified tracks."""
             {
                 "toolSpec": {
                     "name": "build_timeline",
-                    "description": "Build a structured timeline of events from approach to separation. Returns timeline entries with frame, timestamp, metrics, and narrative.",
+                    "description": "Build a structured timeline of events from approach to separation with compass directions and everyday language descriptions. Returns timeline entries with frame, timestamp, metrics, directions, and narrative.",
                     "inputSchema": {
                         "json": {
                             "type": "object",
