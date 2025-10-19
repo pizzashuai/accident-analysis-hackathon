@@ -114,6 +114,9 @@ class BboxSmoother:
         self, tracker_id: int, raw_bbox: np.ndarray
     ) -> np.ndarray:
         """Apply moving average smoothing."""
+        # Ensure raw_bbox is a numpy array
+        raw_bbox = np.array(raw_bbox, dtype=np.float64)
+        
         if tracker_id not in self.bbox_history:
             self.bbox_history[tracker_id] = deque(maxlen=self.window_size)
 
@@ -124,6 +127,9 @@ class BboxSmoother:
 
     def _exponential_smooth(self, tracker_id: int, raw_bbox: np.ndarray) -> np.ndarray:
         """Apply exponential moving average smoothing."""
+        # Ensure raw_bbox is a numpy array
+        raw_bbox = np.array(raw_bbox, dtype=np.float64)
+        
         if tracker_id not in self.ema_bboxes:
             self.ema_bboxes[tracker_id] = raw_bbox
         else:
@@ -135,6 +141,9 @@ class BboxSmoother:
 
     def _kalman_smooth(self, tracker_id: int, raw_bbox: np.ndarray) -> np.ndarray:
         """Apply Kalman filter smoothing."""
+        # Ensure raw_bbox is a numpy array
+        raw_bbox = np.array(raw_bbox, dtype=np.float64)
+        
         if tracker_id not in self.kalman_bbox_states:
             # Initialize
             self.kalman_bbox_states[tracker_id] = {
@@ -161,6 +170,9 @@ class BboxSmoother:
 
     def _iou_weighted_smooth(self, tracker_id: int, raw_bbox: np.ndarray) -> np.ndarray:
         """Apply IOU-weighted smoothing."""
+        # Ensure raw_bbox is a numpy array
+        raw_bbox = np.array(raw_bbox, dtype=np.float64)
+        
         if tracker_id not in self.bbox_history:
             self.bbox_history[tracker_id] = deque(maxlen=self.window_size)
 

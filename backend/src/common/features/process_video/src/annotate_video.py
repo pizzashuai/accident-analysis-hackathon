@@ -516,6 +516,9 @@ class VideoAnnotator:
                     Q = 0.5  # Process noise (lower = smoother, higher = more responsive)
                     R = 3.0  # Measurement noise (higher = trust measurements less)
 
+                    # Ensure raw_bbox is a numpy array
+                    raw_bbox = np.array(raw_bbox, dtype=np.float64)
+
                     if tracker_id not in self.kalman_bbox_states:
                         # Initialize
                         self.kalman_bbox_states[tracker_id] = {

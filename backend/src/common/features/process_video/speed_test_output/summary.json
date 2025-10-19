@@ -1,0 +1,82 @@
+{
+  "none": {
+    "output_file": "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process_video/speed_test_output/detections_no_smoothing.jsonl",
+    "stats": {
+      "total_detections": 1512,
+      "total_tracks": 21,
+      "speed_calculations": 1428,
+      "outliers_rejected": 0,
+      "speeds_assigned": 1428,
+      "avg_raw_speed": 5.952918737237158,
+      "avg_smoothed_speed": 5.952918737237158,
+      "median_smoothed_speed": 0.0,
+      "max_smoothed_speed": 63.95322071162004,
+      "min_smoothed_speed": 0.0,
+      "outlier_rejection_rate": 0.0
+    }
+  },
+  "moving_average": {
+    "output_file": "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process_video/speed_test_output/detections_moving_average.jsonl",
+    "stats": {
+      "total_detections": 1512,
+      "total_tracks": 21,
+      "speed_calculations": 1428,
+      "outliers_rejected": 0,
+      "speeds_assigned": 1428,
+      "avg_raw_speed": 5.952918737237158,
+      "avg_smoothed_speed": 5.991649694982668,
+      "median_smoothed_speed": 1.4161999793855407,
+      "max_smoothed_speed": 51.20640437176097,
+      "min_smoothed_speed": 0.0,
+      "outlier_rejection_rate": 0.0
+    }
+  },
+  "exponential_with_outlier_rejection": {
+    "output_file": "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process_video/speed_test_output/detections_exponential_outlier.jsonl",
+    "stats": {
+      "total_detections": 1512,
+      "total_tracks": 21,
+      "speed_calculations": 1428,
+      "outliers_rejected": 0,
+      "speeds_assigned": 1428,
+      "avg_raw_speed": 5.952918737237158,
+      "avg_smoothed_speed": 5.9755364647275995,
+      "median_smoothed_speed": 1.4669821525475013,
+      "max_smoothed_speed": 50.67471681843081,
+      "min_smoothed_speed": 0.0,
+      "outlier_rejection_rate": 0.0
+    }
+  },
+  "kalman_with_outlier_rejection": {
+    "output_file": "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process_video/speed_test_output/detections_kalman_outlier.jsonl",
+    "stats": {
+      "total_detections": 1512,
+      "total_tracks": 21,
+      "speed_calculations": 1428,
+      "outliers_rejected": 0,
+      "speeds_assigned": 1428,
+      "avg_raw_speed": 5.952918737237158,
+      "avg_smoothed_speed": 5.973729486973712,
+      "median_smoothed_speed": 1.686315962405673,
+      "max_smoothed_speed": 49.843470011453064,
+      "min_smoothed_speed": 0.0,
+      "outlier_rejection_rate": 0.0
+    }
+  },
+  "median_moving_average": {
+    "output_file": "/Users/shuaima/code/accident_analysis/accident-analysis-hackathon/backend/src/common/features/process_video/speed_test_output/detections_median_ma.jsonl",
+    "stats": {
+      "total_detections": 1512,
+      "total_tracks": 21,
+      "speed_calculations": 1428,
+      "outliers_rejected": 0,
+      "speeds_assigned": 1428,
+      "avg_raw_speed": 5.952918737237158,
+      "avg_smoothed_speed": 5.9928718285143745,
+      "median_smoothed_speed": 1.4161999793855407,
+      "max_smoothed_speed": 51.20640437176097,
+      "min_smoothed_speed": 0.0,
+      "outlier_rejection_rate": 0.0
+    }
+  }
+}

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import json
 import cv2
+import numpy as np
 
 import requests
 from celery import Celery
@@ -28,14 +29,40 @@ from src.common.features.processing.crud import (
     bulk_insert_detections,
     create_artifact,
 )
-from src.common.features.process_video import process_video_with_supervision, VideoAnnotator
-from src.common.features.process_video.src.estimate_distance import DistanceEstimator
+from src.common.features.process_video import VideoProcessor, VideoProcessingResult
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Initialize Celery app
 from src.worker.celery_app.app import app as celery_app
+
+
+def convert_to_json_serializable(obj):
+    """
+    Recursively convert NumPy types to Python native types for JSON serialization.
+    
+    Args:
+        obj: Object to convert
+        
+    Returns:
+        JSON-serializable version of the object
+    """
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_json_serializable(item) for item in obj]
+    elif obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    else:
+        # For any other type, try to convert to string as fallback
+        return str(obj)
 
 
 def get_db_session():
@@ -257,217 +284,106 @@ def process_video_task(self, project_id: str, run_id: str):
             if not homography_model:
                 raise ValueError("Homography model not found")
             
-            # Create homography file for DistanceEstimator (expects "pairs" format)
-            pairs_data = []
-            logger.info(f"Found {len(homography_session.pairs)} homography pairs")
-            
-            for idx, pair in enumerate(homography_session.pairs):
-                logger.info(f"Pair {idx}: image({pair.image_x_norm:.4f}, {pair.image_y_norm:.4f}) -> geo({pair.map_lat:.6f}, {pair.map_lng:.6f})")
-                pairs_data.append({
-                    "id": idx,
-                    "a": {
-                        "xNorm": pair.image_x_norm,
-                        "yNorm": pair.image_y_norm
-                    },
-                    "b": {
-                        "lat": pair.map_lat,
-                        "lng": pair.map_lng
-                    }
-                })
-            
-            homography_data = {
-                "pairs": pairs_data,
-                "imagesMeta": homography_model.meta.get("imagesMeta", {}) if homography_model.meta else {},
-                "mapMeta": homography_model.meta.get("mapMeta", {}) if homography_model.meta else {},
-            }
-            
-            logger.info(f"Created homography data with {len(pairs_data)} pairs")
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as homography_file:
-                json.dump(homography_data, homography_file)
-                homography_path = Path(homography_file.name)
-            
-            # Stage 3: Run YOLO + ByteTrack processing
-            update_run_progress(db=session, run_id=run_uuid, stage="detecting", percent=30, message="Running YOLO detection and ByteTrack tracking...")
-            
-            # Create output directory
-            output_dir = Path(tempfile.mkdtemp())
-            
-            # Process video (without annotation for now)
-            process_video_with_supervision(
-                video_path=temp_video_path,
-                test_folder=output_dir,
-                model_path="yolov8s.pt",  # Default model
+            # Initialize video processor with optimal settings
+            processor = VideoProcessor(
+                model_path="yolov8s.pt",
                 conf_threshold=0.2,
                 iou_threshold=0.3,
                 classes=[2, 3, 5, 7, 9],  # Vehicle classes
                 trail_length=10,
-                annotate_video=False,  # Skip annotation for now
-                homography_file=str(homography_path),
+                # Optimal smoothing settings
+                bbox_smoothing_method="kalman",
+                bbox_smoothing_window=5,
+                speed_smoothing_method="moving_average",
+                speed_smoothing_window=5,
+                tracking_point="bottom_center",
             )
             
-            # Stage 4: Load detections and calculate speeds
+            # Create homography data (Python objects, not files)
+            homography_data = processor.create_homography_data(homography_session, homography_model)
+            
+            # Stage 3: Extract video frames and process with Python objects
+            update_run_progress(db=session, run_id=run_uuid, stage="extracting_frames", percent=30, message="Extracting video frames...")
+            
+            # Extract all frames from video
+            cap = cv2.VideoCapture(str(temp_video_path))
+            video_frames = []
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                video_frames.append(frame)
+            cap.release()
+            
+            # Process video frames with progress callback
+            def progress_callback(frame_count, total_frames, message):
+                percent = 30 + (frame_count / total_frames) * 40  # 30-70% range
+                update_run_progress(db=session, run_id=run_uuid, stage="detecting", percent=int(percent), message=message)
+            
+            processing_result = processor.process_video_detections_from_objects(
+                video_frames=video_frames,
+                fps=fps,
+                homography_data=homography_data,
+                progress_callback=progress_callback,
+            )
+            
+            # Stage 4: Convert detections to database format with speed calculation
             update_run_progress(db=session, run_id=run_uuid, stage="calculating_speeds", percent=70, message="Calculating speeds and preparing data...")
             
-            # Initialize distance estimator for speed calculation
-            logger.info(f"Initializing DistanceEstimator with homography file: {homography_path}")
-            distance_estimator = DistanceEstimator(str(homography_path))
-            logger.info(f"DistanceEstimator initialized successfully with {len(distance_estimator.homography_data.pairs)} point pairs")
-            
-            # Read detections from JSONL
-            jsonl_path = output_dir / "detections.jsonl"
-            detections_data = []
-            
-            # Track vehicle positions for speed calculation
-            vehicle_positions = {}  # {track_id: [(frame, x_norm, y_norm, timestamp), ...]}
-            vehicle_speeds = {}    # {track_id: current_speed_mph}
-            
-            with open(jsonl_path, 'r') as f:
-                for line in f:
-                    detection = json.loads(line.strip())
-                    
-                    # Convert to database format
-                    bbox = detection["bbox_xyxy"]
-                    x, y, w, h = bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]
-                    
-                    # Calculate world coordinates using homography
-                    center_x = x + w / 2
-                    center_y = y + h / 2
-                    
-                    # Convert to normalized coordinates (0-1 range)
-                    x_norm = center_x / width
-                    y_norm = center_y / height
-                    
-                    # Transform to world coordinates using homography
-                    try:
-                        geo_point = distance_estimator.image_to_geo(x_norm, y_norm)
-                        wx, wy = geo_point.lng, geo_point.lat
-                    except Exception as e:
-                        logger.warning(f"Failed to transform coordinates: {e}")
-                        wx, wy = None, None
-                    
-                    # Calculate speed if we have tracking data
-                    speed_mph = None
-                    track_id = detection.get("track_id")
-                    if track_id is not None:
-                        # Initialize tracking history for this vehicle
-                        if track_id not in vehicle_positions:
-                            vehicle_positions[track_id] = []
-                        
-                        # Add current position
-                        timestamp = detection["time"]
-                        vehicle_positions[track_id].append((detection["frame"], x_norm, y_norm, timestamp))
-                        
-                        # Keep only last 30 frames of history
-                        if len(vehicle_positions[track_id]) > 30:
-                            vehicle_positions[track_id] = vehicle_positions[track_id][-30:]
-                        
-                        # Calculate speed if we have enough history (use 5 frames for smoothing)
-                        history = vehicle_positions[track_id]
-                        if len(history) >= 5:
-                            old_frame, old_x, old_y, old_time = history[-5]
-                            new_frame, new_x, new_y, new_time = history[-1]
-                            
-                            # Calculate distance using homography
-                            try:
-                                distance_meters = distance_estimator.estimate_distance(
-                                    (old_x, old_y), (new_x, new_y)
-                                )
-                                
-                                # Calculate time difference
-                                time_diff = new_time - old_time
-                                
-                                if time_diff > 0:
-                                    # Calculate speed in meters per second
-                                    speed_mps = distance_meters / time_diff
-                                    
-                                    # Convert to miles per hour (1 m/s = 2.23694 mph)
-                                    speed_mph = speed_mps * 2.23694
-                                    
-                                    # Store current speed for this vehicle
-                                    vehicle_speeds[track_id] = speed_mph
-                                    
-                                    # Debug logging for first few speed calculations
-                                    if len(detections_data) < 10:
-                                        logger.info(f"Speed calculated for track {track_id}: {speed_mph:.2f} mph (distance: {distance_meters:.2f}m, time: {time_diff:.3f}s)")
-                                    
-                            except Exception as e:
-                                logger.warning(f"Failed to calculate speed for track {track_id}: {e}")
-                                speed_mph = vehicle_speeds.get(track_id)  # Use previous speed if available
-                    
-                    detection_data = {
-                        "project_id": project_uuid,
-                        "frame_idx": detection["frame"],
-                        "t_ms": int(detection["time"] * 1000),
-                        "track_id": track_id,
-                        "cls": detection["class_name"],
-                        "conf": detection["conf"],
-                        "x": x,
-                        "y": y,
-                        "w": w,
-                        "h": h,
-                        "wx": wx,
-                        "wy": wy,
-                        "extra": {
-                            "speed_mph": speed_mph,
-                            "class_id": detection["class_id"],
-                            "center": detection["center"],
-                        }
-                    }
-                    detections_data.append(detection_data)
-            
-            # Debug logging for detections data
-            logger.info(f"Processed {len(detections_data)} detections from JSONL")
-            speed_count = sum(1 for d in detections_data if d["extra"].get("speed_mph") is not None)
-            logger.info(f"Detections with speed data: {speed_count}/{len(detections_data)}")
+            detections_data = processor.convert_detections_to_database_format_from_objects(
+                detections_list=processing_result["detections"],
+                project_uuid=project_uuid,
+                video_width=width,
+                video_height=height,
+                homography_data=homography_data,
+            )
             
             # Stage 5: Bulk insert detections to DB
             update_run_progress(db=session, run_id=run_uuid, stage="saving_detections", percent=85, message="Saving detections to database...")
             
             bulk_insert_detections(db=session, run_id=run_uuid, detections_list=detections_data)
             
-            # Stage 6: Update JSONL file with speed data and upload to S3
-            update_run_progress(db=session, run_id=run_uuid, stage="uploading_artifacts", percent=90, message="Updating JSONL with speed data and uploading to S3...")
+            # Stage 6: Create JSONL artifact and upload to S3
+            update_run_progress(db=session, run_id=run_uuid, stage="uploading_artifacts", percent=90, message="Creating JSONL artifact and uploading to S3...")
             
-            # Update JSONL file with speed data
-            updated_jsonl_path = output_dir / "detections_with_speed.jsonl"
+            # Create JSONL content from detections data
+            jsonl_content = ""
             speed_updates_count = 0
-            total_detections = 0
+            for detection_data in detections_data:
+                # Convert detection data to JSONL format
+                jsonl_record = {
+                    "video_id": "video.mp4",
+                    "frame": detection_data["frame_idx"],
+                    "time": detection_data["t_ms"] / 1000.0,
+                    "track_id": detection_data["track_id"],
+                    "det_idx": 0,  # Not used in annotation
+                    "class_id": detection_data["extra"]["class_id"],
+                    "class_name": detection_data["cls"],
+                    "conf": detection_data["conf"],
+                    "bbox_xyxy": [detection_data["x"], detection_data["y"], 
+                                detection_data["x"] + detection_data["w"], 
+                                detection_data["y"] + detection_data["h"]],
+                    "center": detection_data["extra"]["center"],
+                    "speed_mph": detection_data["extra"]["speed_mph"],
+                    "world_coords": [detection_data["wx"], detection_data["wy"]] if detection_data["wx"] is not None else None,
+                    "tracking_point": detection_data["extra"]["tracking_point"],
+                    "raw_bbox": detection_data["extra"]["raw_bbox"],
+                }
+                # Convert all NumPy types to Python native types for JSON serialization
+                jsonl_record = convert_to_json_serializable(jsonl_record)
+                jsonl_content += json.dumps(jsonl_record) + "\n"
+                if detection_data["extra"]["speed_mph"] is not None:
+                    speed_updates_count += 1
             
-            with open(jsonl_path, 'r') as input_file, open(updated_jsonl_path, 'w') as output_file:
-                for line in input_file:
-                    detection = json.loads(line.strip())
-                    total_detections += 1
-                    
-                    # Find matching detection in our processed data
-                    matching_detection = None
-                    for det_data in detections_data:
-                        if (det_data["frame_idx"] == detection["frame"] and 
-                            det_data["track_id"] == detection.get("track_id")):
-                            matching_detection = det_data
-                            break
-                    
-                    # Add speed data if found
-                    if matching_detection and matching_detection["extra"].get("speed_mph") is not None:
-                        detection["speed_mph"] = matching_detection["extra"]["speed_mph"]
-                        speed_updates_count += 1
-                        
-                        # Debug logging for first few speed updates
-                        if speed_updates_count <= 5:
-                            logger.info(f"Updated detection frame {detection['frame']} track {detection.get('track_id')} with speed {detection['speed_mph']:.2f} mph")
-                    
-                    output_file.write(json.dumps(detection) + "\n")
-            
-            logger.info(f"JSONL update complete: {speed_updates_count}/{total_detections} detections updated with speed data")
-            
-            # Upload updated JSONL file
+            # Upload JSONL content to S3
             jsonl_key = f"projects/{project_id}/runs/{run_id}/detections.jsonl"
-            with open(updated_jsonl_path, 'rb') as jsonl_file:
-                upload_result = upload_file_to_s3(
-                    jsonl_file,
-                    settings.AWS_S3_BUCKET,
-                    jsonl_key
-                )
+            import io
+            jsonl_file = io.BytesIO(jsonl_content.encode('utf-8'))
+            upload_result = upload_file_to_s3(
+                jsonl_file,
+                settings.AWS_S3_BUCKET,
+                jsonl_key
+            )
             
             # Create artifact record
             create_artifact(
@@ -491,7 +407,6 @@ def process_video_task(self, project_id: str, run_id: str):
             
             # Clean up temporary files
             temp_video_path.unlink(missing_ok=True)
-            homography_path.unlink(missing_ok=True)
             
             return {
                 "success": True,
@@ -513,7 +428,6 @@ def process_video_task(self, project_id: str, run_id: str):
         # Clean up temporary files
         try:
             temp_video_path.unlink(missing_ok=True)
-            homography_path.unlink(missing_ok=True)
         except:
             pass
         
@@ -530,7 +444,7 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
     1. Download original video from S3
     2. Load detections from database
     3. Load homography data
-    4. Use VideoAnnotator to render annotated video
+    4. Use VideoProcessor to render annotated video
     5. Upload annotated video to S3
     6. Create artifact record
     """
@@ -604,30 +518,24 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             if not homography_model:
                 raise ValueError("Homography model not found")
             
-            # Create homography file for DistanceEstimator (expects "pairs" format)
-            pairs_data = []
-            for idx, pair in enumerate(homography_session.pairs):
-                pairs_data.append({
-                    "id": idx,
-                    "a": {
-                        "xNorm": pair.image_x_norm,
-                        "yNorm": pair.image_y_norm
-                    },
-                    "b": {
-                        "lat": pair.map_lat,
-                        "lng": pair.map_lng
-                    }
-                })
+            # Initialize video processor with optimal settings
+            processor = VideoProcessor(
+                model_path="yolov8s.pt",
+                conf_threshold=0.2,
+                iou_threshold=0.3,
+                classes=[2, 3, 5, 7, 9],  # Vehicle classes
+                trail_length=10,
+                # Optimal smoothing settings
+                bbox_smoothing_method="kalman",
+                bbox_smoothing_window=5,
+                speed_smoothing_method="moving_average",
+                speed_smoothing_window=5,
+                tracking_point="bottom_center",
+            )
             
-            homography_data = {
-                "pairs": pairs_data,
-                "imagesMeta": homography_model.meta.get("imagesMeta", {}) if homography_model.meta else {},
-                "mapMeta": homography_model.meta.get("mapMeta", {}) if homography_model.meta else {},
-            }
-            
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as homography_file:
-                json.dump(homography_data, homography_file)
-                homography_path = Path(homography_file.name)
+            # Create homography data
+            homography_data = processor.create_homography_data(homography_session, homography_model)
+            homography_path = processor.save_homography_file(homography_data)
             
             # Step 4: Convert detections to JSONL format for VideoAnnotator
             update_run_progress(db=session, run_id=run_uuid, stage="preparing_data", percent=40, message="Preparing detection data...")
@@ -646,69 +554,11 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             video_fps = cap.get(cv2.CAP_PROP_FPS)
             cap.release()
             
-            # Initialize distance estimator for speed calculation
-            distance_estimator = DistanceEstimator(str(homography_path))
-            
-            # Track vehicle positions for speed calculation
-            vehicle_positions = {}  # {track_id: [(frame, x_norm, y_norm, timestamp), ...]}
-            vehicle_speeds = {}    # {track_id: current_speed_mph}
-            
             # Convert database detections to JSONL format
             with open(jsonl_path, 'w') as f:
                 for detection in detections:
-                    # Calculate center point for tracking
-                    center_x = detection.x + detection.w / 2
-                    center_y = detection.y + detection.h / 2
-                    
-                    # Convert to normalized coordinates (0-1 range)
-                    x_norm = center_x / video_width
-                    y_norm = center_y / video_height
-                    
-                    # Calculate speed if we have tracking data
-                    speed_mph = detection.extra.get("speed_mph")  # Use existing speed if available
-                    track_id = detection.track_id
-                    
-                    if track_id is not None and speed_mph is None:
-                        # Initialize tracking history for this vehicle
-                        if track_id not in vehicle_positions:
-                            vehicle_positions[track_id] = []
-                        
-                        # Add current position
-                        timestamp = detection.t_ms / 1000.0
-                        vehicle_positions[track_id].append((detection.frame_idx, x_norm, y_norm, timestamp))
-                        
-                        # Keep only last 30 frames of history
-                        if len(vehicle_positions[track_id]) > 30:
-                            vehicle_positions[track_id] = vehicle_positions[track_id][-30:]
-                        
-                        # Calculate speed if we have enough history (use 5 frames for smoothing)
-                        history = vehicle_positions[track_id]
-                        if len(history) >= 5:
-                            old_frame, old_x, old_y, old_time = history[-5]
-                            new_frame, new_x, new_y, new_time = history[-1]
-                            
-                            # Calculate distance using homography
-                            try:
-                                distance_meters = distance_estimator.estimate_distance(
-                                    (old_x, old_y), (new_x, new_y)
-                                )
-                                
-                                # Calculate time difference
-                                time_diff = new_time - old_time
-                                
-                                if time_diff > 0:
-                                    # Calculate speed in meters per second
-                                    speed_mps = distance_meters / time_diff
-                                    
-                                    # Convert to miles per hour (1 m/s = 2.23694 mph)
-                                    speed_mph = speed_mps * 2.23694
-                                    
-                                    # Store current speed for this vehicle
-                                    vehicle_speeds[track_id] = speed_mph
-                                    
-                            except Exception as e:
-                                logger.warning(f"Failed to calculate speed for track {track_id}: {e}")
-                                speed_mph = vehicle_speeds.get(track_id)  # Use previous speed if available
+                    # Get bbox coordinates
+                    bbox = [detection.x, detection.y, detection.x + detection.w, detection.y + detection.h]
                     
                     # Convert database format to JSONL format expected by VideoAnnotator
                     detection_record = {
@@ -720,41 +570,29 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
                         "class_id": detection.extra.get("class_id", 0),
                         "class_name": detection.cls,
                         "conf": detection.conf or 0.0,
-                        "bbox_xyxy": [
-                            detection.x,
-                            detection.y,
-                            detection.x + detection.w,
-                            detection.y + detection.h
-                        ],
-                        "center": detection.extra.get("center", [detection.x + detection.w/2, detection.y + detection.h/2]),
-                        "speed_mph": speed_mph,
+                        "bbox_xyxy": bbox,
+                        "center": detection.extra.get("center", [0, 0]),
+                        "speed_mph": detection.extra.get("speed_mph"),
                         "world_coords": [detection.wx, detection.wy] if detection.wx is not None else None,
+                        "tracking_point": detection.extra.get("tracking_point", "bottom_center"),
+                        "raw_bbox": detection.extra.get("raw_bbox", bbox),
                     }
+                    # Convert all NumPy types to Python native types for JSON serialization
+                    detection_record = convert_to_json_serializable(detection_record)
                     f.write(json.dumps(detection_record) + "\n")
             
-            # Step 5: Use VideoAnnotator to render annotated video
+            # Step 5: Use VideoProcessor to render annotated video
             update_run_progress(db=session, run_id=run_uuid, stage="rendering_video", percent=60, message="Rendering annotated video...")
             
             # Create output video path
             output_video_path = Path(tempfile.mktemp(suffix='.mp4'))
             
-            # Initialize VideoAnnotator with optimal settings for speed calculation
-            annotator = VideoAnnotator(
-                trail_length=10,
-                homography_file=str(homography_path),  # Enable speed calculation
-                bbox_smoothing="kalman",  # Use Kalman filter for best speed stability
-                bbox_smoothing_window=5,
-                speed_smoothing="moving_average",  # Use moving average for best speed smoothing
-                smoothing_window=5,
-                tracking_point="bottom_center",  # Use bottom center for more stable tracking
-                debug_speed=False,  # Disable debug output for production
-            )
-            
-            # Render annotated video
-            annotator.annotate_video_from_jsonl(
+            # Create annotated video using VideoProcessor
+            processor.create_annotated_video(
                 original_video_path=temp_video_path,
                 jsonl_path=jsonl_path,
                 output_path=output_video_path,
+                homography_file=str(homography_path),
                 show_trails=True,
                 show_labels=True,
                 show_boxes=True,
