@@ -302,6 +302,7 @@ export const VideoAnnotationViewer = ({
 
   // Throttled state for map updates to reduce re-rendering
   const [mapDetections, setMapDetections] = useState<DetectionRecord[]>([]);
+  const [currentFrameNumber, setCurrentFrameNumber] = useState<number>(0);
   const lastMapUpdateTime = useRef<number>(0);
   const MAP_UPDATE_INTERVAL = 250; // Update map 4 times per second
 
@@ -690,6 +691,12 @@ export const VideoAnnotationViewer = ({
     currentFrameDetectionsRef.current = visibleDetections;
     setCurrentFrameDetections(visibleDetections);
 
+    // Update current frame number from detections
+    if (frameDetections.length > 0) {
+      const frameNumber = frameDetections[0].frame;
+      setCurrentFrameNumber(frameNumber);
+    }
+
     // Throttle map updates to reduce re-rendering
     const now = Date.now();
     if (now - lastMapUpdateTime.current >= MAP_UPDATE_INTERVAL) {
@@ -1008,6 +1015,8 @@ export const VideoAnnotationViewer = ({
           {/* Map Animation */}
           <VideoMapAnimation
             detections={mapDetections}
+            allDetections={detections}
+            currentFrame={currentFrameNumber}
             height={400}
             center={initialMapConfig.center}
             zoom={initialMapConfig.zoom}

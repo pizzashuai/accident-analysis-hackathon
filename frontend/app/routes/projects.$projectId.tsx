@@ -310,10 +310,6 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                   <Title order={2} mb='xs'>
                     Video Review & Analysis
                   </Title>
-                  <Text size='sm' c='dimmed'>
-                    Review the processed video with vehicle tracking annotations
-                    and apply filters
-                  </Text>
                 </div>
                 <Button
                   variant='light'

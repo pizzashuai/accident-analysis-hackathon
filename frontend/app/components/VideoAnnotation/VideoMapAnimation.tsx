@@ -7,6 +7,8 @@ import type { DetectionRecord } from './VideoAnnotationViewer';
 
 interface VideoMapAnimationProps {
   detections: DetectionRecord[]; // Current frame detections with world_coords
+  allDetections?: DetectionRecord[]; // All historical detections for fallback
+  currentFrame?: number; // Current frame number to filter historical data
   height?: number; // Map height (default 400px)
   center?: { lat: number; lng: number }; // Initial center
   zoom?: number; // Initial zoom level
@@ -61,7 +63,7 @@ const CarIcon = ({
         }}
       >
         {trackId}
-        {speed && ` (${speed.toFixed(1)} mph)`}
+        {speed ? ` (${speed.toFixed(1)} mph)` : ' (No speed data)'}
       </div>
     </div>
   );
@@ -69,6 +71,8 @@ const CarIcon = ({
 
 export const VideoMapAnimation = ({
   detections,
+  allDetections,
+  currentFrame,
   height = 400,
   center = { lat: 1.3521, lng: 103.8198 }, // Default to Singapore
   zoom = 20, // Higher default zoom level
@@ -86,8 +90,8 @@ export const VideoMapAnimation = ({
   const apiKey = import.meta.env.VITE_GOOGLE_MAP_KEY;
 
   // Filter detections that have valid world_coords
-  const detectionsWithCoords = useMemo(() => {
-    return detections.filter(
+  const detectionsWithCoords = useMemo((): DetectionRecord[] => {
+    const currentFrameWithCoords = detections.filter(
       (det) =>
         det.world_coords &&
         Array.isArray(det.world_coords) &&
@@ -97,7 +101,46 @@ export const VideoMapAnimation = ({
         !isNaN(det.world_coords[0]) &&
         !isNaN(det.world_coords[1])
     );
-  }, [detections]);
+
+    // If current frame has detections with coords, use them
+    if (currentFrameWithCoords.length > 0) {
+      return currentFrameWithCoords;
+    }
+
+    // Otherwise, find the most recent detections with world coords from historical data
+    // (frames before the current frame)
+    if (
+      allDetections &&
+      allDetections.length > 0 &&
+      currentFrame !== undefined
+    ) {
+      const historicalWithCoords = allDetections
+        .filter(
+          (det) =>
+            det.frame < currentFrame && // Only frames before current frame
+            det.world_coords &&
+            Array.isArray(det.world_coords) &&
+            det.world_coords.length >= 2 &&
+            typeof det.world_coords[0] === 'number' &&
+            typeof det.world_coords[1] === 'number' &&
+            !isNaN(det.world_coords[0]) &&
+            !isNaN(det.world_coords[1])
+        )
+        .sort((a, b) => b.frame - a.frame); // Sort by frame number descending (most recent first)
+
+      // Group by track_id and get the most recent detection for each track
+      const trackMap: Record<number, DetectionRecord> = {};
+      historicalWithCoords.forEach((det) => {
+        if (det.track_id && !trackMap[det.track_id]) {
+          trackMap[det.track_id] = det;
+        }
+      });
+
+      return Object.values(trackMap);
+    }
+
+    return currentFrameWithCoords;
+  }, [detections, allDetections, currentFrame]);
 
   // Calculate map bounds and center based on visible detections (only when not locked)
   useEffect(() => {
@@ -146,13 +189,30 @@ export const VideoMapAnimation = ({
     setMapZoom(ev.detail.zoom);
   };
 
-  // Check if any detections have world_coords
-  const hasWorldCoords = detections.some(
-    (det) =>
-      det.world_coords &&
-      Array.isArray(det.world_coords) &&
-      det.world_coords.length >= 2
-  );
+  // Check if any detections have world_coords (current frame or historical)
+  const hasWorldCoords = useMemo(() => {
+    // Check current frame first
+    const currentHasCoords = detections.some(
+      (det) =>
+        det.world_coords &&
+        Array.isArray(det.world_coords) &&
+        det.world_coords.length >= 2
+    );
+
+    if (currentHasCoords) return true;
+
+    // Check historical data if current frame has none
+    if (allDetections && allDetections.length > 0) {
+      return allDetections.some(
+        (det) =>
+          det.world_coords &&
+          Array.isArray(det.world_coords) &&
+          det.world_coords.length >= 2
+      );
+    }
+
+    return false;
+  }, [detections, allDetections]);
 
   // Memoize markers to prevent unnecessary re-creation
   const markers = useMemo(() => {
