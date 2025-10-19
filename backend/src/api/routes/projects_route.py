@@ -229,6 +229,14 @@ def upload_video(
         # Extract video metadata
         metadata = extract_video_metadata(temp_file_path)
         
+        # Validate video duration (max 5 seconds)
+        duration = metadata.get("duration", 0)
+        if duration > 5:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Video duration ({duration:.1f}s) exceeds 5 second limit"
+            )
+        
         # Parse video start time if provided
         parsed_start_time = None
         if video_start_time and video_start_time.strip():
@@ -693,7 +701,7 @@ def start_processing(
         if not video_asset:
             raise HTTPException(status_code=400, detail="Video asset not found")
         
-        # Check video duration (< 10 seconds)
+        # Check video duration (< 5 seconds)
         bucket, key = parse_s3_uri(video_asset.uri)
         presigned_url = generate_presigned_url(bucket, key)
         
@@ -717,8 +725,8 @@ def start_processing(
         cap.release()
         temp_video_path.unlink(missing_ok=True)
         
-        if duration_sec > 10:
-            raise HTTPException(status_code=400, detail=f"Video duration ({duration_sec:.1f}s) exceeds 10 second limit")
+        if duration_sec > 5:
+            raise HTTPException(status_code=400, detail=f"Video duration ({duration_sec:.1f}s) exceeds 5 second limit")
         
         # Create processing run
         processing_run = create_processing_run(

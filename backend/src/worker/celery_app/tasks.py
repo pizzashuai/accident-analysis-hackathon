@@ -262,7 +262,7 @@ def process_video_task(self, project_id: str, run_id: str):
                 
                 temp_video_path = Path(temp_video.name)
             
-            # Validate video duration (< 10 seconds)
+            # Validate video duration (< 5 seconds)
             cap = cv2.VideoCapture(str(temp_video_path))
             if not cap.isOpened():
                 raise RuntimeError("Failed to open downloaded video")
@@ -274,8 +274,8 @@ def process_video_task(self, project_id: str, run_id: str):
             duration_sec = frame_count / fps if fps > 0 else 0
             cap.release()
             
-            if duration_sec > 10:
-                raise ValueError(f"Video duration ({duration_sec:.1f}s) exceeds 10 second limit")
+            if duration_sec > 5:
+                raise ValueError(f"Video duration ({duration_sec:.1f}s) exceeds 5 second limit")
             
             # Stage 2: Load homography data
             update_run_progress(db=session, run_id=run_uuid, stage="loading_homography", percent=20, message="Loading homography data...")

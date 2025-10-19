@@ -69,6 +69,25 @@ export function VideoUpload({
     }
   };
 
+  const getVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+
+      video.onloadedmetadata = () => {
+        window.URL.revokeObjectURL(video.src);
+        resolve(video.duration);
+      };
+
+      video.onerror = () => {
+        window.URL.revokeObjectURL(video.src);
+        reject(new Error('Failed to load video metadata'));
+      };
+
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleDrop = async (files: File[]) => {
     const file = files[0];
     if (!file) return;
@@ -83,6 +102,21 @@ export function VideoUpload({
     const maxSize = 100 * 1024 * 1024; // 100MB
     if (file.size > maxSize) {
       showToast('File size must be less than 100MB', 'error');
+      return;
+    }
+
+    // Validate video duration (max 5 seconds)
+    try {
+      const duration = await getVideoDuration(file);
+      if (duration > 5) {
+        showToast(
+          `Video duration (${duration.toFixed(1)}s) exceeds 5 second limit`,
+          'error'
+        );
+        return;
+      }
+    } catch (error) {
+      showToast('Failed to validate video duration', 'error');
       return;
     }
 
