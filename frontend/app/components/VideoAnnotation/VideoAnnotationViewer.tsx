@@ -1003,85 +1003,6 @@ export const VideoAnnotationViewer = ({
                 }}
               />
             </Box>
-
-            <Card withBorder p='sm' style={{ flex: 1, minWidth: '220px' }}>
-              <Stack gap='sm'>
-                <Group gap='xs'>
-                  <Switch
-                    size='sm'
-                    color='blue'
-                    onLabel={<IconEye size={14} />}
-                    offLabel={<IconEyeOff size={14} />}
-                    checked={showLabels}
-                    onChange={(event) =>
-                      setShowLabels(event.currentTarget.checked)
-                    }
-                    label='Show labels'
-                  />
-                  <Switch
-                    size='sm'
-                    checked={showUntracked}
-                    onChange={(event) =>
-                      setShowUntracked(event.currentTarget.checked)
-                    }
-                    label='Show untracked detections'
-                  />
-                </Group>
-
-                <Divider label='Tracks' />
-                {totalTrackCount === 0 ? (
-                  <Text size='sm' c='dimmed'>
-                    Load a JSONL file with detections to view tracks.
-                  </Text>
-                ) : (
-                  <ScrollArea h={260} type='auto'>
-                    <Stack gap='xs'>
-                      {trackSummaries.map((track) => {
-                        const checked = enabledTrackSet.has(track.trackId);
-                        const color = colorForTrack(track.trackId);
-                        return (
-                          <Checkbox
-                            key={track.trackId}
-                            label={
-                              <Stack gap={2}>
-                                <Group gap='xs'>
-                                  <Badge
-                                    color='gray'
-                                    variant='light'
-                                    style={{
-                                      color: '#1f2933',
-                                      backgroundColor: `${color}33`,
-                                      border: `1px solid ${color}`,
-                                    }}
-                                  >
-                                    Track {track.trackId}
-                                  </Badge>
-                                  <Text size='xs' c='dimmed'>
-                                    {track.frameCount} frames · starts at{' '}
-                                    {track.firstSeen.toFixed(2)}s
-                                  </Text>
-                                </Group>
-                                {track.classes.length > 0 && (
-                                  <Text size='xs' c='dimmed'>
-                                    Classes: {track.classes.join(', ')}
-                                  </Text>
-                                )}
-                              </Stack>
-                            }
-                            checked={checked}
-                            onChange={() => toggleTrack(track.trackId)}
-                            onMouseEnter={() =>
-                              setFocusedTrackId(track.trackId)
-                            }
-                            onMouseLeave={() => setFocusedTrackId(null)}
-                          />
-                        );
-                      })}
-                    </Stack>
-                  </ScrollArea>
-                )}
-              </Stack>
-            </Card>
           </Group>
 
           {/* Map Animation */}
@@ -1092,6 +1013,84 @@ export const VideoAnnotationViewer = ({
             zoom={initialMapConfig.zoom}
             lockView={true}
           />
+
+          {/* Labels and Tracks Display */}
+          <Card withBorder p='sm'>
+            <Stack gap='sm'>
+              <Group gap='xs'>
+                <Switch
+                  size='sm'
+                  color='blue'
+                  onLabel={<IconEye size={14} />}
+                  offLabel={<IconEyeOff size={14} />}
+                  checked={showLabels}
+                  onChange={(event) =>
+                    setShowLabels(event.currentTarget.checked)
+                  }
+                  label='Show labels'
+                />
+                <Switch
+                  size='sm'
+                  checked={showUntracked}
+                  onChange={(event) =>
+                    setShowUntracked(event.currentTarget.checked)
+                  }
+                  label='Show untracked detections'
+                />
+              </Group>
+
+              <Divider label='Tracks' />
+              {totalTrackCount === 0 ? (
+                <Text size='sm' c='dimmed'>
+                  Load a JSONL file with detections to view tracks.
+                </Text>
+              ) : (
+                <ScrollArea h={260} type='auto'>
+                  <Stack gap='xs'>
+                    {trackSummaries.map((track) => {
+                      const checked = enabledTrackSet.has(track.trackId);
+                      const color = colorForTrack(track.trackId);
+                      return (
+                        <Checkbox
+                          key={track.trackId}
+                          label={
+                            <Stack gap={2}>
+                              <Group gap='xs'>
+                                <Badge
+                                  color='gray'
+                                  variant='light'
+                                  style={{
+                                    color: '#1f2933',
+                                    backgroundColor: `${color}33`,
+                                    border: `1px solid ${color}`,
+                                  }}
+                                >
+                                  Track {track.trackId}
+                                </Badge>
+                                <Text size='xs' c='dimmed'>
+                                  {track.frameCount} frames · starts at{' '}
+                                  {track.firstSeen.toFixed(2)}s
+                                </Text>
+                              </Group>
+                              {track.classes.length > 0 && (
+                                <Text size='xs' c='dimmed'>
+                                  Classes: {track.classes.join(', ')}
+                                </Text>
+                              )}
+                            </Stack>
+                          }
+                          checked={checked}
+                          onChange={() => toggleTrack(track.trackId)}
+                          onMouseEnter={() => setFocusedTrackId(track.trackId)}
+                          onMouseLeave={() => setFocusedTrackId(null)}
+                        />
+                      );
+                    })}
+                  </Stack>
+                </ScrollArea>
+              )}
+            </Stack>
+          </Card>
         </Stack>
       </Stack>
     </Card>
