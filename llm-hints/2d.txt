@@ -1,0 +1,2 @@
+with a detection tracking jsonl (their transformed 2d lat/lon), I'd like to create a accompanying animation on the google map, replacing the mark as car icon.
+And this 2d map animation is in sync with the cctv video. 

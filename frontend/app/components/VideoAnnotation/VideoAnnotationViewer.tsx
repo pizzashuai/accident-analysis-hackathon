@@ -31,6 +31,7 @@ import {
   useProcessingRuns,
 } from '../../hooks/useProcessing';
 import { JsonlFileSelector } from './JsonlFileSelector';
+import { VideoMapAnimation } from './VideoMapAnimation';
 
 type BboxTuple = [number, number, number, number];
 
@@ -276,6 +277,33 @@ export const VideoAnnotationViewer = ({
   const [isFiltering, setIsFiltering] = useState(false);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [filterSuccess, setFilterSuccess] = useState<string | null>(null);
+
+  // Calculate initial map configuration from detections
+  const initialMapConfig = useMemo(() => {
+    // Calculate from first batch of detections with world_coords
+    const withCoords = detections.filter((d) => d.world_coords);
+    if (withCoords.length === 0) {
+      return { center: { lat: 1.3521, lng: 103.8198 }, zoom: 20 };
+    }
+
+    const lats = withCoords.map((d) => d.world_coords![1]);
+    const lngs = withCoords.map((d) => d.world_coords![0]);
+    const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+    const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+
+    return {
+      center: { lat: centerLat, lng: centerLng },
+      zoom: 19, // Higher zoom level for larger map view
+    };
+  }, [detections.length]); // Only recalculate when detections change
+  const [currentFrameDetections, setCurrentFrameDetections] = useState<
+    DetectionRecord[]
+  >([]);
+
+  // Throttled state for map updates to reduce re-rendering
+  const [mapDetections, setMapDetections] = useState<DetectionRecord[]>([]);
+  const lastMapUpdateTime = useRef<number>(0);
+  const MAP_UPDATE_INTERVAL = 250; // Update map 4 times per second
 
   // Get available processing runs for API detection selection
   const { data: processingRuns } = useProcessingRuns(
@@ -660,6 +688,14 @@ export const VideoAnnotationViewer = ({
     });
 
     currentFrameDetectionsRef.current = visibleDetections;
+    setCurrentFrameDetections(visibleDetections);
+
+    // Throttle map updates to reduce re-rendering
+    const now = Date.now();
+    if (now - lastMapUpdateTime.current >= MAP_UPDATE_INTERVAL) {
+      setMapDetections(visibleDetections);
+      lastMapUpdateTime.current = now;
+    }
 
     visibleDetections.forEach((det) => {
       const [x1, y1, x2, y2] = det.bbox_xyxy;
@@ -815,16 +851,6 @@ export const VideoAnnotationViewer = ({
               (run: any) => run.status === 'completed'
             ) && (
               <Group gap='md' align='flex-end'>
-                <Button
-                  variant={useApiDetections ? 'filled' : 'light'}
-                  color={useApiDetections ? 'blue' : 'gray'}
-                  onClick={handleApiDetectionToggle}
-                  size='sm'
-                >
-                  {useApiDetections
-                    ? 'Using API Detections'
-                    : 'Use API Detections'}
-                </Button>
                 {useApiDetections && loadingDetections && (
                   <Group gap='xs'>
                     <Loader size='sm' />
@@ -945,115 +971,128 @@ export const VideoAnnotationViewer = ({
           )}
         </Group>
 
-        <Group gap='lg' align='flex-start'>
-          <Box
-            ref={containerRef}
-            onClick={handleOverlayClick}
-            style={{
-              position: 'relative',
-              width: '100%',
-              maxWidth: '720px',
-              cursor: 'crosshair',
-            }}
-          >
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              controls
-              style={{ width: '100%', display: 'block' }}
-            >
-              Your browser does not support the video tag.
-            </video>
-            <canvas
-              ref={canvasRef}
+        <Stack gap='md'>
+          <Group gap='lg' align='flex-start'>
+            <Box
+              ref={containerRef}
+              onClick={handleOverlayClick}
               style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
+                position: 'relative',
                 width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
+                maxWidth: '720px',
+                cursor: 'crosshair',
               }}
-            />
-          </Box>
+            >
+              <video
+                ref={videoRef}
+                src={videoUrl}
+                controls
+                style={{ width: '100%', display: 'block' }}
+              >
+                Your browser does not support the video tag.
+              </video>
+              <canvas
+                ref={canvasRef}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                }}
+              />
+            </Box>
 
-          <Card withBorder p='sm' style={{ flex: 1, minWidth: '220px' }}>
-            <Stack gap='sm'>
-              <Group gap='xs'>
-                <Switch
-                  size='sm'
-                  color='blue'
-                  onLabel={<IconEye size={14} />}
-                  offLabel={<IconEyeOff size={14} />}
-                  checked={showLabels}
-                  onChange={(event) =>
-                    setShowLabels(event.currentTarget.checked)
-                  }
-                  label='Show labels'
-                />
-                <Switch
-                  size='sm'
-                  checked={showUntracked}
-                  onChange={(event) =>
-                    setShowUntracked(event.currentTarget.checked)
-                  }
-                  label='Show untracked detections'
-                />
-              </Group>
+            <Card withBorder p='sm' style={{ flex: 1, minWidth: '220px' }}>
+              <Stack gap='sm'>
+                <Group gap='xs'>
+                  <Switch
+                    size='sm'
+                    color='blue'
+                    onLabel={<IconEye size={14} />}
+                    offLabel={<IconEyeOff size={14} />}
+                    checked={showLabels}
+                    onChange={(event) =>
+                      setShowLabels(event.currentTarget.checked)
+                    }
+                    label='Show labels'
+                  />
+                  <Switch
+                    size='sm'
+                    checked={showUntracked}
+                    onChange={(event) =>
+                      setShowUntracked(event.currentTarget.checked)
+                    }
+                    label='Show untracked detections'
+                  />
+                </Group>
 
-              <Divider label='Tracks' />
-              {totalTrackCount === 0 ? (
-                <Text size='sm' c='dimmed'>
-                  Load a JSONL file with detections to view tracks.
-                </Text>
-              ) : (
-                <ScrollArea h={260} type='auto'>
-                  <Stack gap='xs'>
-                    {trackSummaries.map((track) => {
-                      const checked = enabledTrackSet.has(track.trackId);
-                      const color = colorForTrack(track.trackId);
-                      return (
-                        <Checkbox
-                          key={track.trackId}
-                          label={
-                            <Stack gap={2}>
-                              <Group gap='xs'>
-                                <Badge
-                                  color='gray'
-                                  variant='light'
-                                  style={{
-                                    color: '#1f2933',
-                                    backgroundColor: `${color}33`,
-                                    border: `1px solid ${color}`,
-                                  }}
-                                >
-                                  Track {track.trackId}
-                                </Badge>
-                                <Text size='xs' c='dimmed'>
-                                  {track.frameCount} frames · starts at{' '}
-                                  {track.firstSeen.toFixed(2)}s
-                                </Text>
-                              </Group>
-                              {track.classes.length > 0 && (
-                                <Text size='xs' c='dimmed'>
-                                  Classes: {track.classes.join(', ')}
-                                </Text>
-                              )}
-                            </Stack>
-                          }
-                          checked={checked}
-                          onChange={() => toggleTrack(track.trackId)}
-                          onMouseEnter={() => setFocusedTrackId(track.trackId)}
-                          onMouseLeave={() => setFocusedTrackId(null)}
-                        />
-                      );
-                    })}
-                  </Stack>
-                </ScrollArea>
-              )}
-            </Stack>
-          </Card>
-        </Group>
+                <Divider label='Tracks' />
+                {totalTrackCount === 0 ? (
+                  <Text size='sm' c='dimmed'>
+                    Load a JSONL file with detections to view tracks.
+                  </Text>
+                ) : (
+                  <ScrollArea h={260} type='auto'>
+                    <Stack gap='xs'>
+                      {trackSummaries.map((track) => {
+                        const checked = enabledTrackSet.has(track.trackId);
+                        const color = colorForTrack(track.trackId);
+                        return (
+                          <Checkbox
+                            key={track.trackId}
+                            label={
+                              <Stack gap={2}>
+                                <Group gap='xs'>
+                                  <Badge
+                                    color='gray'
+                                    variant='light'
+                                    style={{
+                                      color: '#1f2933',
+                                      backgroundColor: `${color}33`,
+                                      border: `1px solid ${color}`,
+                                    }}
+                                  >
+                                    Track {track.trackId}
+                                  </Badge>
+                                  <Text size='xs' c='dimmed'>
+                                    {track.frameCount} frames · starts at{' '}
+                                    {track.firstSeen.toFixed(2)}s
+                                  </Text>
+                                </Group>
+                                {track.classes.length > 0 && (
+                                  <Text size='xs' c='dimmed'>
+                                    Classes: {track.classes.join(', ')}
+                                  </Text>
+                                )}
+                              </Stack>
+                            }
+                            checked={checked}
+                            onChange={() => toggleTrack(track.trackId)}
+                            onMouseEnter={() =>
+                              setFocusedTrackId(track.trackId)
+                            }
+                            onMouseLeave={() => setFocusedTrackId(null)}
+                          />
+                        );
+                      })}
+                    </Stack>
+                  </ScrollArea>
+                )}
+              </Stack>
+            </Card>
+          </Group>
+
+          {/* Map Animation */}
+          <VideoMapAnimation
+            detections={mapDetections}
+            height={400}
+            center={initialMapConfig.center}
+            zoom={initialMapConfig.zoom}
+            lockView={true}
+          />
+        </Stack>
       </Stack>
     </Card>
   );
