@@ -55,28 +55,4 @@ Phase 3 — Video Processing Run Integration
 - Verify (frontend): project detail → click “Run Analysis” → status transitions to running then completed; detection summary/track counts appear; video overlay
   renders live boxes sourced from the run without needing a pre-rendered annotated video.
 
-Phase 4 — Event Review & Track Selection
-
-- Goal: let users curate relevant tracks, update annotation overlays interactively, and review inferred events per project.
-- Backend: add selected_track and event endpoints returning paginated detections/events filtered by project or track; implement track-selection API to toggle
-  selected_track and immediately influence detection feeds; extend processing task to calculate basic events (e.g., stop, collision) from JSONL outputs or a
-  simplified heuristic (store in event).
-- Frontend: add tabs for “Detections”, “Tracks”, “Events”; embed the video annotation component so clicking tracks (list/table) instantly toggles bounding
-  boxes on the playing video without producing a new video file; render detection timeline (frame/time, class, confidence) and event list filtered by selected
-  tracks/timestamps.
-- Glue: regenerate client; add React Query caches plus websocket/polling updates for track selections; ensure throughput manageable (lazy load, server-side
-  pagination).
-- Verify (frontend): after processing run, open Events tab → select/deselect track IDs and see overlay update immediately while persisting selection; filter
-  events by chosen tracks and refresh to confirm state sync.
-
-Phase 5 — Reporting & UX Polish
-
-- Goal: ship a cohesive reviewer experience with exports and map context.
-- Backend: extend artifact handling for CSV/JSON exports; expose endpoint for summarized metrics (speed, Δv) derived from process-video outputs; enforce
-  permissions and validation across routes.
-- Frontend: add download buttons, summary cards (total events, impact speed), embed map view with selected tracks overlay; enhance error/loading states and
-  guard rails.
-- Verify (frontend): user can walk entire flow—create project → set location → capture homography → run processing → review events/metrics → download reports—
-  without console/network errors.
-
 Next steps: once ready to start, tackle Phase 1 migration scaffolding first, keeping migrations/tests in sync.

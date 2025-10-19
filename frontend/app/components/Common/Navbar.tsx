@@ -1,11 +1,8 @@
-import { Flex, Image, Group, NavLink } from '@mantine/core';
-import { Link, useLocation } from 'react-router';
+import { Flex, Group, Title } from '@mantine/core';
 
 import UserMenu from './UserMenu';
 
 function Navbar() {
-  const location = useLocation();
-
   return (
     <Flex
       justify='space-between'
@@ -20,22 +17,9 @@ function Navbar() {
       p='md'
     >
       <Group gap='lg'>
-        <Group gap='xs'>
-          <NavLink
-            component={Link}
-            to='/'
-            label='Home'
-            active={location.pathname === '/'}
-            style={{ textDecoration: 'none' }}
-          />
-          <NavLink
-            component={Link}
-            to='/projects'
-            label='Projects'
-            active={location.pathname.startsWith('/projects')}
-            style={{ textDecoration: 'none' }}
-          />
-        </Group>
+        <Title order={2} c='blue'>
+          Shuai Accident Analysis
+        </Title>
       </Group>
 
       <Group gap='sm'>
