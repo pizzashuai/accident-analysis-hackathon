@@ -59,7 +59,7 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isLoadingVideoUrl, setIsLoadingVideoUrl] = useState(false);
-  const [useMockTimeline, setUseMockTimeline] = useState(true); // Start with mock for testing
+  const [useMockTimeline, setUseMockTimeline] = useState(false); // Start with mock for testing
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const {
     data: project,

@@ -126,6 +126,14 @@ export const LLMAnalysisPanel = ({
   return (
     <Card withBorder shadow='sm'>
       <Stack gap='md'>
+        {/* Debug: Always visible test */}
+        <Alert color='blue' icon={<IconAlertCircle size={16} />}>
+          <Text size='sm'>
+            LLMAnalysisPanel is rendering! Current phase: {state.currentPhase},
+            Running: {state.isRunning ? 'Yes' : 'No'}
+          </Text>
+        </Alert>
+
         {/* Header */}
         <Group justify='space-between' align='flex-start'>
           <div>
@@ -173,7 +181,11 @@ export const LLMAnalysisPanel = ({
           <Group gap='sm'>
             <Badge
               color={getPhaseColor(state.currentPhase)}
-              leftSection={getPhaseIcon(state.currentPhase)}
+              leftSection={
+                <Group gap={4}>
+                  <Loader size='xs' color='white' />
+                </Group>
+              }
               size='lg'
             >
               {getPhaseLabel(state.currentPhase)}
