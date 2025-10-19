@@ -81,6 +81,21 @@ export const TimelineCard = ({
   onClick,
   isActive = false,
 }: TimelineCardProps) => {
+  const handleClick = () => {
+    console.log('TimelineCard clicked:', {
+      phase,
+      frame,
+      timestamp,
+      description,
+      onClick: !!onClick,
+    });
+    if (onClick) {
+      onClick();
+    } else {
+      console.warn('TimelineCard: onClick handler is not provided');
+    }
+  };
+
   return (
     <Card
       withBorder
@@ -91,7 +106,7 @@ export const TimelineCard = ({
         backgroundColor: isActive ? 'var(--mantine-color-blue-0)' : undefined,
         borderColor: isActive ? 'var(--mantine-color-blue-4)' : undefined,
       }}
-      onClick={onClick}
+      onClick={handleClick}
       onMouseEnter={(e) => {
         if (!isActive) {
           e.currentTarget.style.backgroundColor = 'var(--mantine-color-gray-0)';
@@ -99,7 +114,7 @@ export const TimelineCard = ({
       }}
       onMouseLeave={(e) => {
         if (!isActive) {
-          e.currentTarget.style.backgroundColor = undefined;
+          e.currentTarget.style.backgroundColor = '';
         }
       }}
     >

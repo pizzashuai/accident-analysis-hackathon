@@ -369,8 +369,16 @@ export const LLMAnalysisPanel = ({
                   distance_m={event.distance_m}
                   description={event.description}
                   onClick={() => {
+                    console.log('Timeline event clicked in LLMAnalysisPanel:', {
+                      event,
+                      onSeekToTimestamp: !!onSeekToTimestamp,
+                    });
                     if (onSeekToTimestamp) {
                       onSeekToTimestamp(event.timestamp);
+                    } else {
+                      console.warn(
+                        'onSeekToTimestamp not provided to LLMAnalysisPanel'
+                      );
                     }
                   }}
                   isActive={false}

@@ -1,5 +1,6 @@
 import type { Route } from './+types/projects.$projectId';
 import { useState, useEffect, useRef } from 'react';
+import { useMediaQuery } from '@mantine/hooks';
 import {
   Container,
   Title,
@@ -14,6 +15,7 @@ import {
   Paper,
   Alert,
   Box,
+  SimpleGrid,
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -33,6 +35,7 @@ import { CreateProjectModal } from '~/components/Projects/CreateProjectModal';
 import { ProjectWorkflow } from '~/components/Projects/ProjectWorkflow';
 import { VideoAnnotationViewer } from '~/components/VideoAnnotation/VideoAnnotationViewer';
 import { LLMAnalysisPanel } from '~/components/VideoAnnotation/LLMAnalysisPanel';
+import { MockTimelinePanel } from '~/components/VideoAnnotation/MockTimelinePanel';
 import {
   useProject,
   useDeleteProject,
@@ -49,12 +52,14 @@ export function meta({ params }: Route.MetaArgs) {
 }
 
 export default function ProjectDetail({ params }: Route.ComponentProps) {
+  const isLarge = useMediaQuery('(min-width: 62em)');
   const navigate = useNavigate();
   const [editModalOpened, setEditModalOpened] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isLoadingVideoUrl, setIsLoadingVideoUrl] = useState(false);
+  const [useMockTimeline, setUseMockTimeline] = useState(true); // Start with mock for testing
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const {
     data: project,
@@ -97,9 +102,37 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
   };
 
   const handleSeekToTimestamp = (timestamp: number) => {
+    console.log('handleSeekToTimestamp called:', {
+      timestamp,
+      videoRef: !!videoRef.current,
+      videoCurrentTime: videoRef.current?.currentTime,
+      videoDuration: videoRef.current?.duration,
+      videoPaused: videoRef.current?.paused,
+    });
     if (videoRef.current) {
+      console.log('Before seek - video state:', {
+        currentTime: videoRef.current.currentTime,
+        duration: videoRef.current.duration,
+        paused: videoRef.current.paused,
+        readyState: videoRef.current.readyState,
+      });
+
       videoRef.current.currentTime = timestamp;
       videoRef.current.pause();
+
+      // Check state after seek
+      setTimeout(() => {
+        console.log('After seek - video state:', {
+          currentTime: videoRef.current?.currentTime,
+          duration: videoRef.current?.duration,
+          paused: videoRef.current?.paused,
+          readyState: videoRef.current?.readyState,
+        });
+      }, 100);
+
+      console.log('Video seeked to:', timestamp, 'and paused');
+    } else {
+      console.warn('Video ref is not available for seeking');
     }
   };
 
@@ -311,30 +344,32 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                     Video Review & Analysis
                   </Title>
                 </div>
-                <Button
-                  variant='light'
-                  onClick={() => setActiveStep(0)}
-                  leftSection={<IconArrowLeft size={16} />}
-                >
-                  Back to Setup
-                </Button>
+                <Group gap='sm'>
+                  <Button
+                    variant={useMockTimeline ? 'filled' : 'light'}
+                    onClick={() => setUseMockTimeline(!useMockTimeline)}
+                    size='sm'
+                  >
+                    {useMockTimeline ? 'Mock Timeline' : 'Real Analysis'}
+                  </Button>
+                  <Button
+                    variant='light'
+                    onClick={() => setActiveStep(0)}
+                    leftSection={<IconArrowLeft size={16} />}
+                  >
+                    Back to Setup
+                  </Button>
+                </Group>
               </Group>
 
               {videoUrl ? (
                 <>
                   {console.log('Video URL:', videoUrl)}
-                  {/* Desktop Layout - Side by Side */}
-                  <Group
-                    align='flex-start'
-                    gap='lg'
-                    wrap='nowrap'
-                    visibleFrom='lg'
-                  >
-                    {/* Video Annotation - Left Side */}
+                  {/* Responsive layout: single mounted viewer + side panel */}
+                  <SimpleGrid cols={isLarge ? 2 : 1} spacing='lg'>
                     <Box
                       style={{
-                        flex: '1 1 60%',
-                        minWidth: '400px',
+                        minWidth: '300px',
                       }}
                     >
                       <VideoAnnotationViewer
@@ -344,38 +379,26 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                         videoRef={videoRef}
                       />
                     </Box>
-
-                    {/* AI Accident Analysis - Right Side */}
                     <Box
                       style={{
-                        flex: '1 1 40%',
-                        minWidth: '350px',
+                        minWidth: '280px',
                       }}
                     >
-                      <LLMAnalysisPanel
-                        projectId={params.projectId}
-                        runId={latestCompletedRun?.id}
-                        videoRef={videoRef}
-                        onSeekToTimestamp={handleSeekToTimestamp}
-                      />
+                      {useMockTimeline ? (
+                        <MockTimelinePanel
+                          videoRef={videoRef}
+                          onSeekToTimestamp={handleSeekToTimestamp}
+                        />
+                      ) : (
+                        <LLMAnalysisPanel
+                          projectId={params.projectId}
+                          runId={latestCompletedRun?.id}
+                          videoRef={videoRef}
+                          onSeekToTimestamp={handleSeekToTimestamp}
+                        />
+                      )}
                     </Box>
-                  </Group>
-
-                  {/* Mobile/Tablet Layout - Stacked */}
-                  <Stack gap='lg' hiddenFrom='lg'>
-                    <VideoAnnotationViewer
-                      videoUrl={videoUrl}
-                      projectId={params.projectId}
-                      onSeekToTimestamp={handleSeekToTimestamp}
-                      videoRef={videoRef}
-                    />
-                    <LLMAnalysisPanel
-                      projectId={params.projectId}
-                      runId={latestCompletedRun?.id}
-                      videoRef={videoRef}
-                      onSeekToTimestamp={handleSeekToTimestamp}
-                    />
-                  </Stack>
+                  </SimpleGrid>
 
                   {isLoadingVideoUrl && (
                     <Alert

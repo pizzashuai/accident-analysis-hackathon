@@ -65,6 +65,14 @@ interface VideoAnnotationViewerProps {
    * Optional project ID for JSONL artifact selection
    */
   projectId?: string;
+  /**
+   * Optional callback to seek to a specific timestamp
+   */
+  onSeekToTimestamp?: (timestamp: number) => void;
+  /**
+   * Optional video element ref for external control
+   */
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
 }
 
 interface TrackSummary {
@@ -254,10 +262,37 @@ export const VideoAnnotationViewer = ({
   initialDetections = [],
   runId,
   projectId,
+  onSeekToTimestamp,
+  videoRef: externalVideoRef,
 }: VideoAnnotationViewerProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Callback ref to sync with external ref when video element is mounted
+  const videoRefCallback = useCallback(
+    (videoElement: HTMLVideoElement | null) => {
+      if (videoElement) {
+        internalVideoRef.current = videoElement;
+        if (externalVideoRef) {
+          console.log(
+            'VideoAnnotationViewer: Syncing external video ref via callback',
+            {
+              internalRef: !!internalVideoRef.current,
+              externalRef: !!externalVideoRef.current,
+              videoCurrentTime: videoElement.currentTime,
+              videoDuration: videoElement.duration,
+            }
+          );
+          externalVideoRef.current = videoElement;
+          console.log(
+            'VideoAnnotationViewer: External ref synced successfully via callback'
+          );
+        }
+      }
+    },
+    [externalVideoRef]
+  );
   const animationHandle = useRef<number | null>(null);
   const currentFrameDetectionsRef = useRef<DetectionRecord[]>([]);
 
@@ -632,7 +667,7 @@ export const VideoAnnotationViewer = ({
   }, []);
 
   const drawFrame = useCallback(() => {
-    const videoEl = videoRef.current;
+    const videoEl = internalVideoRef.current;
     const canvasEl = canvasRef.current;
 
     if (!videoEl || !canvasEl) {
@@ -749,7 +784,7 @@ export const VideoAnnotationViewer = ({
   }, [drawFrame]);
 
   useEffect(() => {
-    const videoEl = videoRef.current;
+    const videoEl = internalVideoRef.current;
     if (!videoEl) {
       return;
     }
@@ -773,6 +808,12 @@ export const VideoAnnotationViewer = ({
     };
 
     const handleLoadedMetadata = () => {
+      console.log('VideoAnnotationViewer: Video metadata loaded', {
+        videoElement: !!videoEl,
+        currentTime: videoEl?.currentTime,
+        duration: videoEl?.duration,
+        externalVideoRef: !!externalVideoRef?.current,
+      });
       drawFrame();
     };
 
@@ -799,7 +840,7 @@ export const VideoAnnotationViewer = ({
   const handleOverlayClick = useCallback(
     (event: MouseEvent<HTMLDivElement>) => {
       const container = containerRef.current;
-      const videoEl = videoRef.current;
+      const videoEl = internalVideoRef.current;
       if (!container || !videoEl) {
         return;
       }
@@ -991,7 +1032,7 @@ export const VideoAnnotationViewer = ({
               }}
             >
               <video
-                ref={videoRef}
+                ref={videoRefCallback}
                 src={videoUrl}
                 controls
                 style={{ width: '100%', display: 'block' }}
