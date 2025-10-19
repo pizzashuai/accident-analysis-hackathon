@@ -32,6 +32,7 @@ class MediaAssetPublic(BaseModel):
     created_at: datetime
     is_processing: bool = False
     processing_error: str | None = None
+    video_start_time: datetime | None = None
 
     model_config = {"from_attributes": True}
 

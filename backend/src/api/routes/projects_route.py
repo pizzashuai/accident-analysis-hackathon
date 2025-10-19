@@ -10,7 +10,7 @@ from typing import Optional
 from src.common.database.models.media_asset_table import MediaAsset
 from src.common.database.models.project_table import Project
 from src.common.database.models.homography_session_table import HomographySession
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Response
 from sqlalchemy.orm import Session
 
 
@@ -198,6 +198,7 @@ def upload_video(
     project_id: uuid.UUID,
     current_user: CurrentUser,
     file: UploadFile = File(...),
+    video_start_time: str | None = Form(None),
     session: Session = Depends(get_db),
 ) -> MediaAssetPublic:
     """Upload a video file for a project."""
@@ -228,6 +229,14 @@ def upload_video(
         # Extract video metadata
         metadata = extract_video_metadata(temp_file_path)
         
+        # Parse video start time if provided
+        parsed_start_time = None
+        if video_start_time and video_start_time.strip():
+            try:
+                parsed_start_time = datetime.fromisoformat(video_start_time.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid video_start_time format. Use ISO format (e.g., 2024-01-01T12:00:00Z)")
+        
         # Generate S3 key
         file_extension = Path(file.filename).suffix if file.filename else ".mp4"
         s3_key = f"projects/{project_id}/videos/{uuid.uuid4()}{file_extension}"
@@ -253,6 +262,7 @@ def upload_video(
                 "size": len(content),
                 **metadata,  # Include fps, duration, width, height, frame_count
             },
+            video_start_time=parsed_start_time,
         )
 
         # Update project's video_id
@@ -310,6 +320,55 @@ def get_media_presigned_url(
         raise
     except Exception as e:
         logger.error(f"Error generating presigned URL: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.patch("/{project_id}/media/{media_asset_id}/video-start-time", response_model=MediaAssetPublic)
+def update_video_start_time(
+    project_id: uuid.UUID,
+    media_asset_id: uuid.UUID,
+    current_user: CurrentUser,
+    video_start_time: str | None = Form(None),
+    session: Session = Depends(get_db),
+) -> MediaAssetPublic:
+    """Update video start time for a media asset."""
+    try:
+        # Verify project exists and belongs to user
+        project = get_project_with_relations(
+            session=session, project_id=project_id, user_id=current_user.id
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Query MediaAsset
+        media_asset = session.get(MediaAsset, media_asset_id)
+        
+        if not media_asset or media_asset.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Media asset not found")
+
+        # Only allow updating video assets
+        if media_asset.kind != "video":
+            raise HTTPException(status_code=400, detail="Can only update video start time for video assets")
+
+        # Parse video start time if provided
+        parsed_start_time = None
+        if video_start_time and video_start_time.strip():
+            try:
+                parsed_start_time = datetime.fromisoformat(video_start_time.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid video_start_time format. Use ISO format (e.g., 2024-01-01T12:00:00Z)")
+
+        # Update the video start time
+        media_asset.video_start_time = parsed_start_time
+        session.commit()
+        session.refresh(media_asset)
+
+        return MediaAssetPublic.model_validate(media_asset)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating video start time: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

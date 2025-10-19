@@ -2,6 +2,7 @@ import logging
 import os
 import tempfile
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import json
@@ -349,12 +350,24 @@ def process_video_task(self, project_id: str, run_id: str):
             # Create JSONL content from detections data
             jsonl_content = ""
             speed_updates_count = 0
+            
+            # Calculate real-world event time if video start time is available
+            video_start_time = video_asset.video_start_time
+            
             for detection_data in detections_data:
+                # Calculate real-world event time
+                event_time_real = None
+                if video_start_time:
+                    # Convert video time (seconds) to real-world datetime
+                    video_time_seconds = detection_data["t_ms"] / 1000.0
+                    event_time_real = video_start_time + timedelta(seconds=video_time_seconds)
+                
                 # Convert detection data to JSONL format
                 jsonl_record = {
                     "video_id": "video.mp4",
                     "frame": detection_data["frame_idx"],
                     "time": detection_data["t_ms"] / 1000.0,
+                    "event_time_real": event_time_real.isoformat() if event_time_real else None,
                     "track_id": detection_data["track_id"],
                     "det_idx": 0,  # Not used in annotation
                     "class_id": detection_data["extra"]["class_id"],
@@ -555,8 +568,17 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
             cap.release()
             
             # Convert database detections to JSONL format
+            video_start_time = video_asset.video_start_time
+            
             with open(jsonl_path, 'w') as f:
                 for detection in detections:
+                    # Calculate real-world event time
+                    event_time_real = None
+                    if video_start_time:
+                        # Convert video time (seconds) to real-world datetime
+                        video_time_seconds = detection.t_ms / 1000.0
+                        event_time_real = video_start_time + timedelta(seconds=video_time_seconds)
+                    
                     # Get bbox coordinates
                     bbox = [detection.x, detection.y, detection.x + detection.w, detection.y + detection.h]
                     
@@ -565,6 +587,7 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
                         "video_id": video_asset.uri.split('/')[-1] if video_asset.uri else "video.mp4",
                         "frame": detection.frame_idx,
                         "time": detection.t_ms / 1000.0,
+                        "event_time_real": event_time_real.isoformat() if event_time_real else None,
                         "track_id": detection.track_id,
                         "det_idx": 0,  # Not used in annotation
                         "class_id": detection.extra.get("class_id", 0),

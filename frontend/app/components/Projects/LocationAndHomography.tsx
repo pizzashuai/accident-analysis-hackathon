@@ -36,7 +36,6 @@ import {
 } from '@vis.gl/react-google-maps';
 import type { MapMouseEvent } from '@vis.gl/react-google-maps';
 import { MapDisplay } from '~/homography/MapDisplay';
-import { HomographyMatrixDisplay } from '~/homography/HomographyMatrixDisplay';
 import {
   useSetProjectLocation,
   useMediaPresignedUrl,
@@ -527,6 +526,157 @@ export function LocationAndHomography({
     );
   }
 
+  // Show empty state when no homography session exists
+  if (!session) {
+    return (
+      <Stack gap='lg'>
+        {/* Location Section */}
+        <Paper p='sm' withBorder>
+          <Stack gap='md'>
+            <div>
+              <Text size='lg' fw={600} mb='xs'>
+                Set Location
+              </Text>
+            </div>
+
+            {project.location?.lat && project.location?.lon && (
+              <Alert color='green' icon={<IconCheck size={16} />}>
+                Location set:{' '}
+                {project.location.addr_line ||
+                  `${project.location.lat.toFixed(6)}, ${project.location.lon.toFixed(6)}`}
+              </Alert>
+            )}
+
+            <APIProvider apiKey={apiKey} libraries={['places']}>
+              <form onSubmit={locationForm.onSubmit(handleLocationSubmit)}>
+                <Stack gap='md'>
+                  <TextInput
+                    ref={inputRef}
+                    label='Address'
+                    placeholder='Search for an address or place...'
+                    {...locationForm.getInputProps('addr_line')}
+                  />
+
+                  {/* Interactive Map */}
+                  <div>
+                    <Text size='sm' fw={500} mb={4}>
+                      Map
+                    </Text>
+                    <Paper
+                      withBorder
+                      style={{
+                        width: '100%',
+                        height: 300,
+                        position: 'relative',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Map
+                        defaultZoom={mapZoom}
+                        center={mapCenter}
+                        onClick={handleMapClick}
+                        mapId='location-picker-map'
+                        style={{ width: '100%', height: '100%' }}
+                        gestureHandling='greedy'
+                        disableDefaultUI={false}
+                      >
+                        {markerPosition && (
+                          <AdvancedMarker
+                            position={markerPosition}
+                            title='Selected Location'
+                          >
+                            <Pin
+                              background='#228be6'
+                              borderColor='#ffffff'
+                              glyphColor='#ffffff'
+                            />
+                          </AdvancedMarker>
+                        )}
+                      </Map>
+                    </Paper>
+                  </div>
+
+                  <Group grow>
+                    <NumberInput
+                      label='Latitude'
+                      placeholder='e.g., 40.7128'
+                      decimalScale={6}
+                      min={-90}
+                      max={90}
+                      {...locationForm.getInputProps('lat')}
+                    />
+                    <NumberInput
+                      label='Longitude'
+                      placeholder='e.g., -74.0060'
+                      decimalScale={6}
+                      min={-180}
+                      max={180}
+                      {...locationForm.getInputProps('lon')}
+                    />
+                  </Group>
+
+                  <Button type='submit' loading={isSubmittingLocation}>
+                    {project.location ? 'Update Location' : 'Set Location'}
+                  </Button>
+                </Stack>
+              </form>
+            </APIProvider>
+          </Stack>
+        </Paper>
+
+        {/* Empty State for Homography Configuration */}
+        <Paper p='md' withBorder>
+          <Stack gap='md' align='center'>
+            <div style={{ textAlign: 'center' }}>
+              <IconMapPin size={48} color='var(--mantine-color-gray-5)' />
+              <Text size='lg' fw={600} mt='md' mb='xs'>
+                Configure Homography Mapping
+              </Text>
+              <Text size='sm' c='dimmed' mb='lg'>
+                Set up point mapping between your video frame and real-world
+                coordinates to enable accurate speed calculations.
+              </Text>
+            </div>
+
+            <Alert
+              color='blue'
+              icon={<IconMapPin size={16} />}
+              style={{ width: '100%' }}
+            >
+              <Text size='sm'>
+                <strong>Next steps:</strong>
+                <br />
+                1. Set the location above (if not already done)
+                <br />
+                2. Upload a video and capture a key frame
+                <br />
+                3. Initialize homography session to start mapping points
+              </Text>
+            </Alert>
+
+            <Group gap='sm'>
+              <Button
+                onClick={() => createSession.mutate(projectId)}
+                loading={createSession.isPending}
+                leftSection={<IconCheck size={16} />}
+                disabled={!project.location}
+              >
+                Initialize Homography Session
+              </Button>
+            </Group>
+
+            {!project.location && (
+              <Alert color='yellow' icon={<IconMapPin size={16} />}>
+                Please set the location first before initializing homography
+                session.
+              </Alert>
+            )}
+          </Stack>
+        </Paper>
+      </Stack>
+    );
+  }
+
   return (
     <Stack gap='lg'>
       {/* Location Section */}
@@ -658,16 +808,6 @@ export function LocationAndHomography({
                     : 'Not configured'}
               </Badge>
             </Group>
-
-            {!session && (
-              <Button
-                onClick={() => createSession.mutate(projectId)}
-                loading={createSession.isPending}
-                leftSection={<IconCheck size={16} />}
-              >
-                Initialize Session
-              </Button>
-            )}
           </Group>
 
           {(session as any)?.status === 'solved' && (

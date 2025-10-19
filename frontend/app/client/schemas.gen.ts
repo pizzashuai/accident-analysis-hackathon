@@ -107,12 +107,41 @@ export const Body_login_login_access_tokenSchema = {
     title: 'Body_login-login_access_token'
 } as const;
 
+export const Body_projects_update_video_start_timeSchema = {
+    properties: {
+        video_start_time: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Video Start Time'
+        }
+    },
+    type: 'object',
+    title: 'Body_projects-update_video_start_time'
+} as const;
+
 export const Body_projects_upload_videoSchema = {
     properties: {
         file: {
             type: 'string',
             format: 'binary',
             title: 'File'
+        },
+        video_start_time: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Video Start Time'
         }
     },
     type: 'object',
@@ -597,6 +626,18 @@ export const MediaAssetPublicSchema = {
                 }
             ],
             title: 'Processing Error'
+        },
+        video_start_time: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Video Start Time'
         },
         presigned_url: {
             anyOf: [

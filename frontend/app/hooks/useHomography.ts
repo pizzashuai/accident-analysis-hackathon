@@ -12,9 +12,19 @@ import {
 import { handleError } from '~/utils';
 
 export function useHomographySession(projectId: string) {
-  return useQuery<HomographySessionPublic, ApiError>({
+  return useQuery<HomographySessionPublic | null, ApiError>({
     queryKey: ['homography-session', projectId],
-    queryFn: () => ProjectsService.getHomographySession({ projectId }),
+    queryFn: async () => {
+      try {
+        return await ProjectsService.getHomographySession({ projectId });
+      } catch (error: any) {
+        // Handle 404 errors gracefully - no session exists yet
+        if (error?.status === 404) {
+          return null;
+        }
+        throw error;
+      }
+    },
     enabled: !!projectId,
   });
 }

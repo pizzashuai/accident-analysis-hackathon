@@ -24,8 +24,13 @@ export type Body_login_login_access_token = {
     client_secret?: (string | null);
 };
 
+export type Body_projects_update_video_start_time = {
+    video_start_time?: (string | null);
+};
+
 export type Body_projects_upload_video = {
     file: (Blob | File);
+    video_start_time?: (string | null);
 };
 
 export type DetectionPublic = {
@@ -163,6 +168,7 @@ export type MediaAssetPublic = {
     created_at: string;
     is_processing?: boolean;
     processing_error?: (string | null);
+    video_start_time?: (string | null);
     /**
      * Generate presigned URL for S3 objects.
      */
@@ -382,6 +388,14 @@ export type ProjectsGetMediaPresignedUrlData = {
 };
 
 export type ProjectsGetMediaPresignedUrlResponse = (unknown);
+
+export type ProjectsUpdateVideoStartTimeData = {
+    formData?: Body_projects_update_video_start_time;
+    mediaAssetId: string;
+    projectId: string;
+};
+
+export type ProjectsUpdateVideoStartTimeResponse = (MediaAssetPublic);
 
 export type ProjectsSetProjectLocationData = {
     projectId: string;

@@ -4,6 +4,8 @@ import {
   MantineProvider,
   type MantineProviderProps,
 } from '@mantine/core';
+import { DatesProvider } from '@mantine/dates';
+import 'dayjs/locale/en';
 
 export const appTheme = createTheme({
   colors: {
@@ -19,7 +21,7 @@ export function AppTheme({
 }: MantineProviderProps) {
   return (
     <MantineProvider theme={theme} withNormalizeCSS withGlobalStyles {...props}>
-      {children}
+      <DatesProvider settings={{ locale: 'en' }}>{children}</DatesProvider>
     </MantineProvider>
   );
 }

@@ -89,10 +89,16 @@ export function useUploadVideo() {
   return useMutation<
     MediaAssetPublic,
     ApiError,
-    { projectId: string; file: File }
+    { projectId: string; file: File; videoStartTime?: string }
   >({
-    mutationFn: ({ projectId, file }) => {
-      return ProjectsService.uploadVideo({ projectId, formData: { file } });
+    mutationFn: ({ projectId, file, videoStartTime }) => {
+      return ProjectsService.uploadVideo({
+        projectId,
+        formData: {
+          file: file,
+          video_start_time: videoStartTime || null,
+        },
+      });
     },
     onSuccess: (_, { projectId }) => {
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
@@ -149,6 +155,36 @@ export function useMediaPresignedUrl() {
         projectId,
         mediaAssetId,
       }),
+    onError: (err: ApiError) => {
+      handleError(err);
+    },
+  });
+}
+
+export function useUpdateVideoStartTime() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    MediaAssetPublic,
+    ApiError,
+    {
+      projectId: string;
+      mediaAssetId: string;
+      videoStartTime?: string;
+    }
+  >({
+    mutationFn: ({ projectId, mediaAssetId, videoStartTime }) =>
+      ProjectsService.updateVideoStartTime({
+        projectId,
+        mediaAssetId,
+        formData: {
+          video_start_time: videoStartTime || null,
+        },
+      }),
+    onSuccess: (_, { projectId }) => {
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
     onError: (err: ApiError) => {
       handleError(err);
     },

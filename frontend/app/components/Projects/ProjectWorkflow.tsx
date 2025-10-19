@@ -106,52 +106,37 @@ function calculateStepStatuses(
     statuses[0] = { completed: false, warning: 'No video uploaded' };
   }
 
-  // Step 1: Capture Key Frame
-  const hasScreenshot = project.media_assets?.some(
-    (asset) => asset.kind === 'image'
-  );
-  if (hasScreenshot) {
-    statuses[1] = { completed: true };
-  } else if (project.video?.is_processing) {
-    statuses[1] = { completed: false, warning: 'Extracting frame...' };
-  } else if (!project.video) {
-    statuses[1] = { completed: false, error: 'Upload video first' };
-  } else {
-    statuses[1] = { completed: false, warning: 'Frame not extracted yet' };
-  }
-
-  // Step 2: Set Location & Configure Homography (Combined)
+  // Step 1: Set Location & Configure Homography (Combined)
   const homographySession = project.homography_session as any;
   const hasLocation =
     project.location && project.location.lat && project.location.lon;
   const hasHomography = homographySession?.status === 'solved';
 
   if (hasLocation && hasHomography) {
-    statuses[2] = { completed: true };
+    statuses[1] = { completed: true };
   } else if (hasLocation && homographySession?.status === 'draft') {
-    statuses[2] = {
+    statuses[1] = {
       completed: false,
       warning: 'Location set, homography configured but not solved',
     };
-  } else if (!hasScreenshot) {
-    statuses[2] = { completed: false, error: 'Capture key frame first' };
+  } else if (!project.video) {
+    statuses[1] = { completed: false, error: 'Upload video first' };
   } else if (!hasLocation) {
-    statuses[2] = {
+    statuses[1] = {
       completed: false,
       warning: 'Location and homography not configured',
     };
   } else {
-    statuses[2] = {
+    statuses[1] = {
       completed: false,
       warning: 'Location set, homography not configured',
     };
   }
 
-  // Step 3: Review & Run
-  const allPrerequisitesMet =
-    statuses[0]?.completed && statuses[1]?.completed && statuses[2]?.completed;
+  // Step 2: Review & Run
+  const allPrerequisitesMet = statuses[0]?.completed && statuses[1]?.completed;
 
-  statuses[3] = {
+  statuses[2] = {
     completed: allPrerequisitesMet,
     warning: allPrerequisitesMet ? undefined : 'Complete all prerequisites',
   };
@@ -191,7 +176,7 @@ export function ProjectWorkflow({
 
   const handleNext = () => {
     const nextStep = state.activeStep + 1;
-    if (nextStep <= 3) {
+    if (nextStep <= 2) {
       setTransitionDirection('right');
       dispatch({ type: 'SET_ACTIVE_STEP', payload: nextStep });
     }
@@ -212,7 +197,7 @@ export function ProjectWorkflow({
   };
 
   const getStepIcon = (step: number) => {
-    const icons = [IconVideo, IconPhoto, IconMapPin, IconPlayerPlay];
+    const icons = [IconVideo, IconMapPin, IconPlayerPlay];
     return icons[step];
   };
 
@@ -270,16 +255,13 @@ export function ProjectWorkflow({
                 Upload Video
               </Text>
               <Text size='sm' c='dimmed'>
-                Upload your CCTV or dashcam video for accident analysis. The
-                video will be processed to extract a key frame for homography
-                configuration.
+                Upload your CCTV or dashcam video for accident analysis.
               </Text>
             </div>
 
             {project.video && (
               <Alert color='green' icon={<IconCheck size={16} />}>
                 Video uploaded successfully
-                {project.video.is_processing && ' - Processing frame...'}
               </Alert>
             )}
 
@@ -289,7 +271,11 @@ export function ProjectWorkflow({
               </Alert>
             )}
 
-            <VideoUpload projectId={projectId} onUploadComplete={onRefresh} />
+            <VideoUpload
+              projectId={projectId}
+              project={project}
+              onUploadComplete={onRefresh}
+            />
 
             {!project.video && (
               <Alert color='blue' icon={<IconAlertCircle size={16} />}>
@@ -300,62 +286,6 @@ export function ProjectWorkflow({
         );
 
       case 1:
-        return (
-          <Stack gap='md'>
-            <div>
-              <Text size='xl' fw={600} mb='xs'>
-                Capture Key Frame
-              </Text>
-              <Text size='sm' c='dimmed'>
-                A key frame from your video is needed for homography
-                configuration. This frame will be used to map video coordinates
-                to real-world map coordinates.
-              </Text>
-            </div>
-
-            {(() => {
-              const screenshot = project.media_assets?.find(
-                (asset) => asset.kind === 'image'
-              );
-
-              if (screenshot) {
-                return (
-                  <Alert color='green' icon={<IconCheck size={16} />}>
-                    Key frame captured successfully. You can proceed to set the
-                    location.
-                  </Alert>
-                );
-              }
-
-              if (project.video?.is_processing) {
-                return (
-                  <Alert color='blue' icon={<IconAlertCircle size={16} />}>
-                    Frame extraction in progress... This usually takes a few
-                    seconds.
-                  </Alert>
-                );
-              }
-
-              if (!project.video) {
-                return (
-                  <Alert color='red' icon={<IconAlertCircle size={16} />}>
-                    Please upload a video first (Step 1).
-                  </Alert>
-                );
-              }
-
-              return (
-                <Alert color='yellow' icon={<IconAlertCircle size={16} />}>
-                  Frame extraction is pending. The system will automatically
-                  extract a frame after video upload. If this takes too long,
-                  try refreshing the page.
-                </Alert>
-              );
-            })()}
-          </Stack>
-        );
-
-      case 2:
         return (
           <Stack gap='md'>
             <div>
@@ -377,7 +307,7 @@ export function ProjectWorkflow({
           </Stack>
         );
 
-      case 3:
+      case 2:
         return (
           <Stack gap='md'>
             <div>
@@ -414,26 +344,10 @@ export function ProjectWorkflow({
 
                 <Group justify='space-between'>
                   <Group gap='xs'>
-                    <IconPhoto size={16} />
-                    <Text size='sm'>Key Frame</Text>
-                  </Group>
-                  {state.stepStatuses[1]?.completed ? (
-                    <Badge color='green' variant='light'>
-                      Complete
-                    </Badge>
-                  ) : (
-                    <Badge color='red' variant='light'>
-                      Incomplete
-                    </Badge>
-                  )}
-                </Group>
-
-                <Group justify='space-between'>
-                  <Group gap='xs'>
                     <IconMapPin size={16} />
                     <Text size='sm'>Location & Homography</Text>
                   </Group>
-                  {state.stepStatuses[2]?.completed ? (
+                  {state.stepStatuses[1]?.completed ? (
                     <Badge color='green' variant='light'>
                       Complete
                     </Badge>
@@ -446,7 +360,7 @@ export function ProjectWorkflow({
               </Stack>
             </Paper>
 
-            {state.stepStatuses[3]?.completed ? (
+            {state.stepStatuses[2]?.completed ? (
               <Alert color='green' icon={<IconCheck size={16} />}>
                 All prerequisites met! You can now run video processing.
               </Alert>
@@ -474,7 +388,6 @@ export function ProjectWorkflow({
 
   const steps = [
     { label: 'Upload Video' },
-    { label: 'Capture Frame' },
     {
       label: 'Location & Homography',
     },
@@ -564,7 +477,7 @@ export function ProjectWorkflow({
                   </Text>
                 </Group>
 
-                {state.activeStep < 3 ? (
+                {state.activeStep < 2 ? (
                   <Button
                     rightSection={<IconChevronRight size={16} />}
                     onClick={handleNext}
@@ -576,7 +489,7 @@ export function ProjectWorkflow({
                   <Button
                     color='green'
                     rightSection={<IconPlayerPlay size={16} />}
-                    disabled={!state.stepStatuses[3]?.completed}
+                    disabled={!state.stepStatuses[2]?.completed}
                     onClick={() => {
                       if (onReviewVideo) {
                         onReviewVideo();

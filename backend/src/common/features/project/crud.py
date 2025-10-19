@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import and_, or_
@@ -77,6 +78,7 @@ def create_media_asset(
     uri: str,
     bytes: int | None = None,
     meta: dict[str, Any] | None = None,
+    video_start_time: datetime | None = None,
 ) -> MediaAsset:
     """Create a media asset."""
     db_asset = MediaAsset(
@@ -85,6 +87,7 @@ def create_media_asset(
         uri=uri,
         bytes=bytes,
         meta=meta or {},
+        video_start_time=video_start_time,
     )
     session.add(db_asset)
     session.commit()

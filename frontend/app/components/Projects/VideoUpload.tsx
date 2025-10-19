@@ -1,20 +1,73 @@
-import { useState } from 'react';
-import { Button, Text, Group, Progress, Stack } from '@mantine/core';
+import { useState, useEffect } from 'react';
+import {
+  Button,
+  Text,
+  Group,
+  Progress,
+  Stack,
+  Alert,
+  Divider,
+} from '@mantine/core';
+import { DateTimePicker } from '@mantine/dates';
 import { Dropzone } from '@mantine/dropzone';
-import { IconUpload, IconX, IconFile } from '@tabler/icons-react';
-import { useUploadVideo } from '~/hooks/useProjects';
+import {
+  IconUpload,
+  IconX,
+  IconFile,
+  IconCalendar,
+  IconCheck,
+  IconEdit,
+} from '@tabler/icons-react';
+import { useUploadVideo, useUpdateVideoStartTime } from '~/hooks/useProjects';
 import { useCustomToast } from '~/hooks/useCustomToast';
+import type { ProjectPublic } from '~/client';
 
 interface VideoUploadProps {
   projectId: string;
+  project?: ProjectPublic;
   onUploadComplete?: () => void;
 }
 
-export function VideoUpload({ projectId, onUploadComplete }: VideoUploadProps) {
+export function VideoUpload({
+  projectId,
+  project,
+  onUploadComplete,
+}: VideoUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [videoStartTime, setVideoStartTime] = useState<string | null>(null);
+  const [isUpdatingStartTime, setIsUpdatingStartTime] = useState(false);
   const uploadVideo = useUploadVideo();
+  const updateVideoStartTime = useUpdateVideoStartTime();
   const { showToast } = useCustomToast();
+
+  // Initialize video start time from existing project data
+  useEffect(() => {
+    if (project?.video?.video_start_time) {
+      setVideoStartTime(project.video.video_start_time);
+    }
+  }, [project?.video?.video_start_time]);
+
+  const handleUpdateVideoStartTime = async () => {
+    if (!project?.video?.id) {
+      showToast('No video found to update', 'error');
+      return;
+    }
+
+    setIsUpdatingStartTime(true);
+    try {
+      await updateVideoStartTime.mutateAsync({
+        projectId,
+        mediaAssetId: project.video.id,
+        videoStartTime: videoStartTime || undefined,
+      });
+      showToast('Video start time updated successfully', 'success');
+    } catch (error) {
+      showToast('Failed to update video start time', 'error');
+    } finally {
+      setIsUpdatingStartTime(false);
+    }
+  };
 
   const handleDrop = async (files: File[]) => {
     const file = files[0];
@@ -48,7 +101,11 @@ export function VideoUpload({ projectId, onUploadComplete }: VideoUploadProps) {
         });
       }, 200);
 
-      await uploadVideo.mutateAsync({ projectId, file });
+      await uploadVideo.mutateAsync({
+        projectId,
+        file,
+        videoStartTime: videoStartTime || '',
+      });
 
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -63,55 +120,132 @@ export function VideoUpload({ projectId, onUploadComplete }: VideoUploadProps) {
     }
   };
 
+  const hasVideo = !!project?.video;
+  const hasVideoStartTime = !!project?.video?.video_start_time;
+  const isStartTimeChanged =
+    videoStartTime !== project?.video?.video_start_time;
+
   return (
     <Stack gap='md'>
       <Text size='sm' fw={500}>
         Upload Video
       </Text>
 
-      <Dropzone
-        onDrop={handleDrop}
-        onReject={() => showToast('Invalid file type', 'error')}
-        maxSize={100 * 1024 * 1024} // 100MB
-        accept={{
-          'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm'],
-        }}
-        loading={uploading}
-        disabled={uploading}
-      >
-        <Group
-          justify='center'
-          gap='xl'
-          mih={220}
-          style={{ pointerEvents: 'none' }}
-        >
-          <Dropzone.Accept>
-            <IconUpload size={52} stroke={1.5} />
-          </Dropzone.Accept>
-          <Dropzone.Reject>
-            <IconX size={52} stroke={1.5} />
-          </Dropzone.Reject>
-          <Dropzone.Idle>
-            <IconFile size={52} stroke={1.5} />
-          </Dropzone.Idle>
+      <Alert color='blue' icon={<IconCalendar size={16} />}>
+        <Text size='sm'>
+          Optional: Set the real-world start time of the video to calculate
+          accurate event timestamps in the JSONL output.
+        </Text>
+      </Alert>
 
-          <div>
-            <Text size='xl' inline>
-              Drag video file here or click to select
-            </Text>
-            <Text size='sm' c='dimmed' inline mt={7}>
-              Supports MP4, AVI, MOV, MKV, WebM (max 100MB)
-            </Text>
-          </div>
+      {/* Video Start Time Section */}
+      <Stack gap='sm'>
+        <Group justify='space-between' align='center'>
+          <Text size='sm' fw={500}>
+            Video Start Time
+          </Text>
+          {hasVideoStartTime && (
+            <Group gap='xs'>
+              <IconCheck size={16} color='var(--mantine-color-green-6)' />
+              <Text size='xs' c='green'>
+                Set
+              </Text>
+            </Group>
+          )}
         </Group>
-      </Dropzone>
 
-      {uploading && (
-        <Stack gap='xs'>
-          <Text size='sm'>Uploading video...</Text>
-          <Progress value={uploadProgress} size='sm' />
-        </Stack>
-      )}
+        <DateTimePicker
+          label={
+            hasVideo ? 'Update Video Start Time' : 'Video Start Time (Optional)'
+          }
+          placeholder='Pick date and time'
+          value={videoStartTime}
+          onChange={setVideoStartTime}
+          leftSection={<IconCalendar size={16} />}
+          description={
+            hasVideo
+              ? 'Update the real-world start time of the uploaded video'
+              : 'Set the real-world start time of the video for accurate event timestamps'
+          }
+          disabled={uploading || isUpdatingStartTime}
+          clearable
+        />
+
+        {hasVideo && (
+          <Group gap='sm'>
+            <Button
+              size='xs'
+              variant='light'
+              onClick={handleUpdateVideoStartTime}
+              loading={isUpdatingStartTime}
+              disabled={!isStartTimeChanged}
+              leftSection={<IconEdit size={14} />}
+            >
+              {isStartTimeChanged ? 'Update Start Time' : 'No Changes'}
+            </Button>
+            {isStartTimeChanged && (
+              <Text size='xs' c='orange'>
+                You have unsaved changes
+              </Text>
+            )}
+          </Group>
+        )}
+      </Stack>
+
+      {hasVideo && <Divider />}
+
+      {/* Video Upload Section */}
+      <Stack gap='sm'>
+        <Text size='sm' fw={500}>
+          {hasVideo ? 'Replace Video' : 'Upload Video'}
+        </Text>
+
+        <Dropzone
+          onDrop={handleDrop}
+          onReject={() => showToast('Invalid file type', 'error')}
+          maxSize={100 * 1024 * 1024} // 100MB
+          accept={{
+            'video/*': ['.mp4', '.avi', '.mov', '.mkv', '.webm'],
+          }}
+          loading={uploading}
+          disabled={uploading}
+        >
+          <Group
+            justify='center'
+            gap='xl'
+            mih={220}
+            style={{ pointerEvents: 'none' }}
+          >
+            <Dropzone.Accept>
+              <IconUpload size={52} stroke={1.5} />
+            </Dropzone.Accept>
+            <Dropzone.Reject>
+              <IconX size={52} stroke={1.5} />
+            </Dropzone.Reject>
+            <Dropzone.Idle>
+              <IconFile size={52} stroke={1.5} />
+            </Dropzone.Idle>
+
+            <div>
+              <Text size='xl' inline>
+                {hasVideo
+                  ? 'Drag new video here or click to replace'
+                  : 'Drag video file here or click to select'}
+              </Text>
+              <Text size='sm' c='dimmed' inline mt={7}>
+                Supports MP4, AVI, MOV, MKV, WebM (max 100MB)
+              </Text>
+            </div>
+          </Group>
+        </Dropzone>
+
+        {uploading && (
+          <Stack gap='xs'>
+            <Text size='sm'>Uploading video...</Text>
+            <Progress value={uploadProgress} size='sm' />
+          </Stack>
+        )}
+      </Stack>
     </Stack>
   );
 }

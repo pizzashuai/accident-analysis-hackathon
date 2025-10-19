@@ -53,6 +53,10 @@ class MediaAsset(Base):
         Text,
         nullable=True,
     )
+    video_start_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     # Relationships
     project = relationship("Project", foreign_keys=[project_id], back_populates="media_assets")
