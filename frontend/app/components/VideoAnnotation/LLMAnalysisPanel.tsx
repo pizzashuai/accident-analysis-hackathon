@@ -25,18 +25,29 @@ import {
   IconAlertCircle,
   IconTool,
   IconFileText,
+  IconCloud,
+  IconTemperature,
+  IconEye,
+  IconDroplet,
+  IconClock,
 } from '@tabler/icons-react';
 import { useLLMAnalysis } from '~/hooks/useLLMAnalysis';
 import { MarkdownRenderer } from '~/components/Common/MarkdownRenderer';
+import { TimelineCard } from './TimelineCard';
+import type { TimelineEvent } from '~/hooks/useLLMAnalysis';
 
 interface LLMAnalysisPanelProps {
   projectId: string;
   runId?: string;
+  videoRef?: React.RefObject<HTMLVideoElement | null>;
+  onSeekToTimestamp?: (timestamp: number) => void;
 }
 
 export const LLMAnalysisPanel = ({
   projectId,
   runId,
+  videoRef,
+  onSeekToTimestamp,
 }: LLMAnalysisPanelProps) => {
   const {
     state,
@@ -197,6 +208,41 @@ export const LLMAnalysisPanel = ({
           </Alert>
         )}
 
+        {/* Weather Data */}
+        {state.weatherData && (
+          <Card withBorder p='sm'>
+            <Group justify='space-between' mb='sm'>
+              <Group gap='xs'>
+                <IconCloud size={16} />
+                <Text fw={500}>Weather Conditions</Text>
+              </Group>
+            </Group>
+            <Group gap='lg'>
+              <Group gap={4}>
+                <IconTemperature size={16} />
+                <Text size='sm'>{state.weatherData.temperature_f}°F</Text>
+              </Group>
+              <Group gap={4}>
+                <IconCloud size={16} />
+                <Text size='sm'>{state.weatherData.condition}</Text>
+              </Group>
+              <Group gap={4}>
+                <IconDroplet size={16} />
+                <Text size='sm'>{state.weatherData.precipitation}</Text>
+              </Group>
+              <Group gap={4}>
+                <IconEye size={16} />
+                <Text size='sm'>
+                  {state.weatherData.visibility_mi} mi visibility
+                </Text>
+              </Group>
+              <Text size='sm' c='dimmed'>
+                Road: {state.weatherData.road_condition}
+              </Text>
+            </Group>
+          </Card>
+        )}
+
         {/* Error Display */}
         {state.error && (
           <Alert color='red' icon={<IconAlertCircle size={16} />}>
@@ -280,6 +326,11 @@ export const LLMAnalysisPanel = ({
                         {toolCall.status === 'error' && <IconX size={14} />}
                       </Group>
                     </Group>
+                    {toolCall.reasoning && (
+                      <Text size='sm' c='blue' mb='xs' fs='italic'>
+                        {toolCall.reasoning}
+                      </Text>
+                    )}
                     <Text size='xs' c='dimmed' mb='xs'>
                       Input: {formatToolCallInput(toolCall.input)}
                     </Text>
@@ -292,6 +343,40 @@ export const LLMAnalysisPanel = ({
                 ))}
               </Stack>
             </Collapse>
+          </Card>
+        )}
+
+        {/* Timeline Section */}
+        {state.timeline && state.timeline.length > 0 && (
+          <Card withBorder p='sm'>
+            <Group justify='space-between' mb='sm'>
+              <Group gap='xs'>
+                <IconClock size={16} />
+                <Text fw={500}>Event Timeline</Text>
+                <Badge size='sm' color='blue' variant='light'>
+                  {state.timeline.length}
+                </Badge>
+              </Group>
+            </Group>
+            <Stack gap='sm'>
+              {state.timeline.map((event, index) => (
+                <TimelineCard
+                  key={`${event.phase}-${event.frame}-${index}`}
+                  phase={event.phase}
+                  frame={event.frame}
+                  timestamp={event.timestamp}
+                  speed_mph={event.speed_mph}
+                  distance_m={event.distance_m}
+                  description={event.description}
+                  onClick={() => {
+                    if (onSeekToTimestamp) {
+                      onSeekToTimestamp(event.timestamp);
+                    }
+                  }}
+                  isActive={false}
+                />
+              ))}
+            </Stack>
           </Card>
         )}
 

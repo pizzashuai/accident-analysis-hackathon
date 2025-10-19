@@ -159,6 +159,32 @@ def create_tool_schemas() -> list[dict[str, Any]]:
                 },
             }
         },
+        {
+            "toolSpec": {
+                "name": "get_weather_data",
+                "description": "Retrieve weather conditions for a specific location and time to assess environmental factors that may have contributed to the accident.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {
+                            "latitude": {
+                                "type": "number",
+                                "description": "Latitude coordinate of the accident location",
+                            },
+                            "longitude": {
+                                "type": "number", 
+                                "description": "Longitude coordinate of the accident location",
+                            },
+                            "timestamp": {
+                                "type": "string",
+                                "description": "ISO timestamp of when the accident occurred",
+                            },
+                        },
+                        "required": ["latitude", "longitude", "timestamp"],
+                    }
+                },
+            }
+        },
     ]
 
 
@@ -211,6 +237,8 @@ class AgentToolHandler:
             return self._handle_build_timeline(tool_input)
         elif tool_name == "report_assumptions":
             return self._handle_report_assumptions(tool_input)
+        elif tool_name == "get_weather_data":
+            return self._handle_get_weather(tool_input)
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
@@ -406,6 +434,55 @@ class AgentToolHandler:
                 "assumptions": assumptions,
                 "total_issues": len(assumptions),
                 "message": f"Identified {len(assumptions)} data quality issues and assumptions",
+            }
+        except Exception as e:
+            return {"error": str(e), "success": False}
+
+    def _handle_get_weather(self, tool_input: dict[str, Any]) -> dict[str, Any]:
+        """Handle get_weather_data tool call."""
+        try:
+            import random
+            from datetime import datetime
+            
+            latitude = tool_input["latitude"]
+            longitude = tool_input["longitude"]
+            timestamp = tool_input["timestamp"]
+            
+            # Generate random but realistic weather data
+            conditions = ["Clear", "Partly Cloudy", "Cloudy", "Overcast", "Foggy"]
+            precipitations = ["None", "Light Rain", "Moderate Rain", "Heavy Rain", "Snow", "Sleet"]
+            road_conditions = ["Dry", "Wet", "Icy", "Snow-covered", "Slippery"]
+            
+            # Random weather generation
+            condition = random.choice(conditions)
+            precipitation = random.choice(precipitations)
+            road_condition = random.choice(road_conditions)
+            
+            # Temperature in Fahrenheit (realistic range)
+            temperature_f = random.randint(20, 85)
+            
+            # Visibility in miles (affected by weather)
+            if condition == "Foggy" or precipitation in ["Heavy Rain", "Snow"]:
+                visibility_mi = round(random.uniform(0.1, 2.0), 1)
+            elif precipitation in ["Light Rain", "Moderate Rain", "Sleet"]:
+                visibility_mi = round(random.uniform(1.0, 5.0), 1)
+            else:
+                visibility_mi = round(random.uniform(5.0, 10.0), 1)
+            
+            weather_data = {
+                "temperature_f": temperature_f,
+                "condition": condition,
+                "precipitation": precipitation,
+                "visibility_mi": visibility_mi,
+                "road_condition": road_condition,
+                "location": {"latitude": latitude, "longitude": longitude},
+                "timestamp": timestamp,
+            }
+            
+            return {
+                "success": True,
+                "weather_data": weather_data,
+                "message": f"Weather conditions: {condition}, {temperature_f}°F, {precipitation}, Visibility: {visibility_mi} mi, Road: {road_condition}",
             }
         except Exception as e:
             return {"error": str(e), "success": False}

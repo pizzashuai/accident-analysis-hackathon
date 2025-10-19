@@ -165,6 +165,14 @@ class LLMEventPublisher:
         """Publish collision detection event."""
         self._publish_event(analysis_id, "collision_detected", {"message": message})
 
+    def publish_tool_call_reasoning(
+        self, analysis_id: str, tool_name: str, reasoning: str
+    ) -> None:
+        """Publish tool call reasoning event."""
+        self._publish_event(
+            analysis_id, "tool_call_reasoning", {"tool": tool_name, "reasoning": reasoning}
+        )
+
     def close(self) -> None:
         """Close the Redis connection."""
         if hasattr(self, "redis_client"):

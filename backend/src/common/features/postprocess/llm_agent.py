@@ -80,14 +80,16 @@ AVAILABLE TOOLS:
 3. trace_impact_window - Detect collision events and impact windows
 4. build_timeline - Generate structured event timeline
 5. report_assumptions - Identify data quality issues
+6. get_weather_data - Retrieve weather conditions for environmental analysis
 
 ANALYSIS WORKFLOW:
 1. Start by loading the detection data for the specified track IDs
-2. Compute collision metrics to understand vehicle interactions
-3. Trace impact windows to determine if collision occurred
-4. Build timeline of events with specific timestamps and descriptions
-5. Report data quality issues and assumptions
-6. Generate a comprehensive analysis report in everyday language
+2. Retrieve weather conditions for environmental context
+3. Compute collision metrics to understand vehicle interactions
+4. Trace impact windows to determine if collision occurred
+5. Build timeline of events with specific timestamps and descriptions
+6. Report data quality issues and assumptions
+7. Generate a comprehensive analysis report in everyday language
 
 REPORT GENERATION:
 - Write in clear, conversational language that tells the story of what happened
@@ -97,6 +99,8 @@ REPORT GENERATION:
 - Minimize technical calculations and focus on narrative descriptions
 - Include specific frame numbers and timestamps for reference
 - Highlight any data limitations or assumptions in simple terms
+- Include a dedicated weather section with environmental conditions
+- Integrate weather context into the narrative (e.g., "Given the clear weather conditions, visibility was not a factor...")
 - Provide clear conclusions about what occurred
 
 Generate a professional, easy-to-understand accident analysis report that tells the story of what happened."""
@@ -178,6 +182,10 @@ Generate a professional, easy-to-understand accident analysis report that tells 
                 elif event_type == "collision_detected":
                     self.event_publisher.publish_collision_detected(
                         self.analysis_id, data.get("message", "Collision detected!")
+                    )
+                elif event_type == "tool_call_reasoning":
+                    self.event_publisher.publish_tool_call_reasoning(
+                        self.analysis_id, data["tool"], data["reasoning"]
                     )
                 logger.info(f"Successfully published event {event_type}")
             except Exception as e:
@@ -615,6 +623,36 @@ Start by loading the detection data for the specified tracks."""
             }
         )
 
+        # Define get_weather_data tool
+        tools.append(
+            {
+                "toolSpec": {
+                    "name": "get_weather_data",
+                    "description": "Retrieve weather conditions for a specific location and time to assess environmental factors that may have contributed to the accident.",
+                    "inputSchema": {
+                        "json": {
+                            "type": "object",
+                            "properties": {
+                                "latitude": {
+                                    "type": "number",
+                                    "description": "Latitude coordinate of the accident location",
+                                },
+                                "longitude": {
+                                    "type": "number", 
+                                    "description": "Longitude coordinate of the accident location",
+                                },
+                                "timestamp": {
+                                    "type": "string",
+                                    "description": "ISO timestamp of when the accident occurred",
+                                },
+                            },
+                            "required": ["latitude", "longitude", "timestamp"],
+                        }
+                    },
+                }
+            }
+        )
+
         return tools
 
     def _is_final_answer(self, response: dict[str, Any]) -> bool:
@@ -669,6 +707,21 @@ Start by loading the detection data for the specified tracks."""
                 # Publish tool call start event
                 self._publish_event(
                     "tool_call_start", {"tool": tool_name, "input": tool_input}
+                )
+
+                # Publish tool call reasoning event
+                tool_reasoning_map = {
+                    "load_detections": "Loading vehicle detection data to understand positions and movements over time",
+                    "compute_pair_metrics": "Calculating distances and speeds between vehicles to identify potential collision points",
+                    "trace_impact_window": "Analyzing overlap patterns to determine exact collision timing and severity",
+                    "build_timeline": "Creating chronological sequence of events from approach through separation",
+                    "report_assumptions": "Identifying data quality issues and assumptions for transparency",
+                    "get_weather_data": "Retrieving weather conditions to assess environmental factors",
+                }
+                
+                reasoning = tool_reasoning_map.get(tool_name, f"Executing {tool_name} tool")
+                self._publish_event(
+                    "tool_call_reasoning", {"tool": tool_name, "reasoning": reasoning}
                 )
 
                 # Execute the tool

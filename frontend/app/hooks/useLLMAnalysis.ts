@@ -5,12 +5,30 @@ import { useCustomToast } from './useCustomToast';
 import { useSSE, type SSEEvent } from './useSSE';
 import { buildLLMAnalysisSSEUrl } from '~/utils/sse';
 
+export interface TimelineEvent {
+  phase: string;
+  frame: number;
+  timestamp: number;
+  speed_mph?: number;
+  distance_m?: number;
+  description: string;
+}
+
+export interface WeatherData {
+  temperature_f: number;
+  condition: string;
+  precipitation: string;
+  visibility_mi: number;
+  road_condition: string;
+}
+
 export interface LLMEvent {
   type:
     | 'thinking_start'
     | 'thinking_content'
     | 'thinking_end'
     | 'tool_call_start'
+    | 'tool_call_reasoning'
     | 'tool_call_result'
     | 'report_start'
     | 'report_content'
@@ -37,10 +55,13 @@ export interface AnalysisState {
     tool: string;
     input: any;
     result?: any;
+    reasoning?: string;
     status: 'pending' | 'running' | 'completed' | 'error';
   }>;
   reportContent: string;
   collisionResult: string | null;
+  timeline: TimelineEvent[] | null;
+  weatherData: WeatherData | null;
   error: string | null;
   showThinking: boolean;
   showToolCalls: boolean;
@@ -58,6 +79,8 @@ export const useLLMAnalysis = (projectId: string, runId?: string) => {
     toolCalls: [],
     reportContent: '',
     collisionResult: null,
+    timeline: null,
+    weatherData: null,
     error: null,
     showThinking: true,
     showToolCalls: true,
@@ -108,14 +131,67 @@ export const useLLMAnalysis = (projectId: string, runId?: string) => {
             ],
           };
 
-        case 'tool_call_result':
+        case 'tool_call_reasoning':
           return {
             ...prev,
             toolCalls: prev.toolCalls.map((tc) =>
               tc.tool === event.data.tool && tc.status === 'running'
-                ? { ...tc, result: event.data.result, status: 'completed' }
+                ? { ...tc, reasoning: event.data.reasoning }
                 : tc
             ),
+          };
+
+        case 'tool_call_result':
+          const updatedToolCalls = prev.toolCalls.map((tc) =>
+            tc.tool === event.data.tool && tc.status === 'running'
+              ? {
+                  ...tc,
+                  result: event.data.result,
+                  status: 'completed' as const,
+                }
+              : tc
+          );
+
+          // Extract timeline data from build_timeline tool result
+          let newTimeline = prev.timeline;
+          if (
+            event.data.tool === 'build_timeline' &&
+            event.data.result?.success &&
+            event.data.result?.timeline
+          ) {
+            newTimeline = event.data.result.timeline.map((item: any) => ({
+              phase: item.phase || item.stage || 'Unknown',
+              frame: item.frame || 0,
+              timestamp: item.timestamp || 0,
+              speed_mph: item.speed_mph,
+              distance_m: item.distance_m,
+              description:
+                item.description || item.narrative || 'No description',
+            }));
+          }
+
+          // Extract weather data from get_weather_data tool result
+          let newWeatherData = prev.weatherData;
+          if (
+            event.data.tool === 'get_weather_data' &&
+            event.data.result?.success &&
+            event.data.result?.weather_data
+          ) {
+            const weather = event.data.result.weather_data;
+            newWeatherData = {
+              temperature_f: weather.temperature_f,
+              condition: weather.condition,
+              precipitation: weather.precipitation,
+              visibility_mi: weather.visibility_mi,
+              road_condition: weather.road_condition,
+            };
+          }
+
+          return {
+            ...prev,
+            toolCalls: updatedToolCalls,
+            timeline: newTimeline,
+            weatherData: newWeatherData,
           };
 
         case 'report_start':
@@ -261,6 +337,8 @@ export const useLLMAnalysis = (projectId: string, runId?: string) => {
       toolCalls: [],
       reportContent: '',
       collisionResult: null,
+      timeline: null,
+      weatherData: null,
       error: null,
       showThinking: true,
       showToolCalls: true,

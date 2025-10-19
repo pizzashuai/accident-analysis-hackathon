@@ -1,5 +1,5 @@
 import type { Route } from './+types/projects.$projectId';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Title,
@@ -13,6 +13,7 @@ import {
   Stepper,
   Paper,
   Alert,
+  Box,
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -54,6 +55,7 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isLoadingVideoUrl, setIsLoadingVideoUrl] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const {
     data: project,
     isLoading,
@@ -92,6 +94,13 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
 
   const handleRefresh = () => {
     refetch();
+  };
+
+  const handleSeekToTimestamp = (timestamp: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = timestamp;
+      videoRef.current.pause();
+    }
   };
 
   // Fetch video URL when project data changes
@@ -318,10 +327,60 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
               {videoUrl ? (
                 <>
                   {console.log('Video URL:', videoUrl)}
-                  <VideoAnnotationViewer
-                    videoUrl={videoUrl}
-                    projectId={params.projectId}
-                  />
+                  {/* Desktop Layout - Side by Side */}
+                  <Group
+                    align='flex-start'
+                    gap='lg'
+                    wrap='nowrap'
+                    visibleFrom='lg'
+                  >
+                    {/* Video Annotation - Left Side */}
+                    <Box
+                      style={{
+                        flex: '1 1 60%',
+                        minWidth: '400px',
+                      }}
+                    >
+                      <VideoAnnotationViewer
+                        videoUrl={videoUrl}
+                        projectId={params.projectId}
+                        onSeekToTimestamp={handleSeekToTimestamp}
+                        videoRef={videoRef}
+                      />
+                    </Box>
+
+                    {/* AI Accident Analysis - Right Side */}
+                    <Box
+                      style={{
+                        flex: '1 1 40%',
+                        minWidth: '350px',
+                      }}
+                    >
+                      <LLMAnalysisPanel
+                        projectId={params.projectId}
+                        runId={latestCompletedRun?.id}
+                        videoRef={videoRef}
+                        onSeekToTimestamp={handleSeekToTimestamp}
+                      />
+                    </Box>
+                  </Group>
+
+                  {/* Mobile/Tablet Layout - Stacked */}
+                  <Stack gap='lg' hiddenFrom='lg'>
+                    <VideoAnnotationViewer
+                      videoUrl={videoUrl}
+                      projectId={params.projectId}
+                      onSeekToTimestamp={handleSeekToTimestamp}
+                      videoRef={videoRef}
+                    />
+                    <LLMAnalysisPanel
+                      projectId={params.projectId}
+                      runId={latestCompletedRun?.id}
+                      videoRef={videoRef}
+                      onSeekToTimestamp={handleSeekToTimestamp}
+                    />
+                  </Stack>
+
                   {isLoadingVideoUrl && (
                     <Alert
                       color='blue'
@@ -331,12 +390,6 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                       <Text size='sm'>Loading video URL...</Text>
                     </Alert>
                   )}
-
-                  {/* LLM Analysis Panel */}
-                  <LLMAnalysisPanel
-                    projectId={params.projectId}
-                    runId={latestCompletedRun?.id}
-                  />
                 </>
               ) : (
                 <Card withBorder p='xl' ta='center'>
