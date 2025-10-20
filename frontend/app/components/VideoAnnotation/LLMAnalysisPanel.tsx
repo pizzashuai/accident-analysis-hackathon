@@ -126,14 +126,6 @@ export const LLMAnalysisPanel = ({
   return (
     <Card withBorder shadow='sm'>
       <Stack gap='md'>
-        {/* Debug: Always visible test */}
-        <Alert color='blue' icon={<IconAlertCircle size={16} />}>
-          <Text size='sm'>
-            LLMAnalysisPanel is rendering! Current phase: {state.currentPhase},
-            Running: {state.isRunning ? 'Yes' : 'No'}
-          </Text>
-        </Alert>
-
         {/* Header */}
         <Group justify='space-between' align='flex-start'>
           <div>

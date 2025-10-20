@@ -1,0 +1,35 @@
+app = "shuai-traffic-api"         # TODO: replace with your Fly app name
+primary_region = "iad"                # TODO: pick the region closest to your users
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "src/api/Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+  PORT = "8000"
+  PYTHONPATH = "/app:/app/src"
+
+[deploy]
+  release_command = "bash scripts/prestart.sh"
+
+[processes]
+  app = ""
+
+[http_service]
+  processes = ["app"]
+  internal_port = 8000
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = false
+  min_machines_running = 1
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 40
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

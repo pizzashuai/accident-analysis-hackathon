@@ -1,0 +1,18 @@
+app = "shuai-traffic-worker"      # TODO: replace with your Fly app name
+primary_region = "iad"                # TODO: pick the region closest to your users
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "src/worker/Dockerfile"
+
+[env]
+  ENVIRONMENT = "production"
+
+[processes]
+  worker = ""
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

@@ -103,10 +103,8 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str = ""
     S3_PRESIGNED_URL_EXPIRATION: int = 3600
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def aws_bucket(self) -> str:
-        return self.AWS_S3_BUCKET
+    REDIS_URL: str = "redis://localhost:6379/0"
+
 
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:

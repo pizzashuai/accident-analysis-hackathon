@@ -334,6 +334,7 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
             projectId={params.projectId}
             onRefresh={handleRefresh}
             onReviewVideo={() => setActiveStep(1)}
+            canReviewVideo={isVideoReviewAvailable()}
           />
         ) : (
           <Card withBorder shadow='sm'>
@@ -345,13 +346,6 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                   </Title>
                 </div>
                 <Group gap='sm'>
-                  <Button
-                    variant={useMockTimeline ? 'filled' : 'light'}
-                    onClick={() => setUseMockTimeline(!useMockTimeline)}
-                    size='sm'
-                  >
-                    {useMockTimeline ? 'Mock Timeline' : 'Real Analysis'}
-                  </Button>
                   <Button
                     variant='light'
                     onClick={() => setActiveStep(0)}

@@ -8,7 +8,7 @@ htmlcov
 .venv
 .uv-cache
 /.uv-cache/
-.env
+.env*
 .ruff_cache
 /.ruff_cache/
 **/.mypy_cache/
@@ -16,3 +16,4 @@ htmlcov
 /.htmlcov/
 ./.venv/
 *.pid
+/.pytest_cache/

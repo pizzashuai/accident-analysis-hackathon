@@ -1,6 +1,5 @@
 import { useState, useEffect, useReducer } from 'react';
 import {
-  Container,
   Stack,
   Group,
   Paper,
@@ -13,13 +12,10 @@ import {
   Grid,
   Transition,
   Box,
-  useMantineTheme,
 } from '@mantine/core';
 import {
   IconVideo,
-  IconPhoto,
   IconMapPin,
-  IconAdjustments,
   IconCheck,
   IconAlertCircle,
   IconChevronLeft,
@@ -36,6 +32,7 @@ interface ProjectWorkflowProps {
   projectId: string;
   onRefresh: () => void;
   onReviewVideo?: () => void;
+  canReviewVideo?: boolean;
 }
 
 interface StepStatus {
@@ -149,8 +146,8 @@ export function ProjectWorkflow({
   projectId,
   onRefresh,
   onReviewVideo,
+  canReviewVideo,
 }: ProjectWorkflowProps) {
-  const theme = useMantineTheme();
   const [state, dispatch] = useReducer(workflowReducer, {
     activeStep: 0,
     stepStatuses: calculateStepStatuses(project),
@@ -394,8 +391,11 @@ export function ProjectWorkflow({
     { label: 'Review & Run' },
   ];
 
+  const reviewReady =
+    canReviewVideo ?? state.stepStatuses[2]?.completed ?? false;
+
   return (
-    <Container size='xl' px={{ base: 'xs', sm: 'md' }}>
+    <Box style={{ width: '100%' }}>
       <Grid gutter='lg'>
         {/* Left Column: Stepper */}
         <Grid.Col span={{ base: 12, md: 3 }}>
@@ -489,7 +489,7 @@ export function ProjectWorkflow({
                   <Button
                     color='green'
                     rightSection={<IconPlayerPlay size={16} />}
-                    disabled={!state.stepStatuses[2]?.completed}
+                    disabled={!reviewReady}
                     onClick={() => {
                       if (onReviewVideo) {
                         onReviewVideo();
@@ -510,6 +510,6 @@ export function ProjectWorkflow({
           </Stack>
         </Grid.Col>
       </Grid>
-    </Container>
+    </Box>
   );
 }
