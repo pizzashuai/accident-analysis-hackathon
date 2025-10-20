@@ -1,0 +1,5 @@
+After the final llm agent analysis finds out the timeline, I want to create pdf with the full report, the screenshot of video and map overlay need to be in the PDF, and the pdf should look beautiful.
+In backend, create api to generate the pdf report, create a plan to format/export PDF, delegate to celery (and use LLM if needed), after it's done, add report to the database
+In frontend, there should be a button to generate the report, display the reports generated
+
+This is a fullstack implementation
