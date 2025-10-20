@@ -174,9 +174,11 @@ export const LLMAnalysisPanel = ({
             <Badge
               color={getPhaseColor(state.currentPhase)}
               leftSection={
-                <Group gap={4}>
-                  <Loader size='xs' color='white' />
-                </Group>
+                state.isRunning && (
+                  <Group gap={4}>
+                    <Loader size='xs' color='white' />
+                  </Group>
+                )
               }
               size='lg'
             >
@@ -198,6 +200,21 @@ export const LLMAnalysisPanel = ({
               />
             )}
           </Group>
+        )}
+
+        {/* PDF Generation Notification */}
+        {state.currentPhase === 'complete' && (
+          <Alert
+            color='blue'
+            icon={<IconFileText size={16} />}
+            title='PDF Report Generation Started'
+          >
+            <Text size='sm'>
+              Analysis complete! PDF report generation has been automatically
+              triggered. Check the PDF Reports section below to monitor progress
+              and download your report.
+            </Text>
+          </Alert>
         )}
 
         {/* Collision Detection Result */}

@@ -36,6 +36,7 @@ import { ProjectWorkflow } from '~/components/Projects/ProjectWorkflow';
 import { VideoAnnotationViewer } from '~/components/VideoAnnotation/VideoAnnotationViewer';
 import { LLMAnalysisPanel } from '~/components/VideoAnnotation/LLMAnalysisPanel';
 import { MockTimelinePanel } from '~/components/VideoAnnotation/MockTimelinePanel';
+import { ReportGenerationPanel } from '~/components/VideoAnnotation/ReportGenerationPanel';
 import {
   useProject,
   useDeleteProject,
@@ -226,9 +227,9 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
 
   // Helper function to check if video review is available
   const isVideoReviewAvailable = () => {
-    return (
+    return Boolean(
       videoUrl &&
-      processingRuns?.data?.some((run: any) => run.status === 'completed')
+        processingRuns?.data?.some((run: any) => run.status === 'completed')
     );
   };
 
@@ -393,6 +394,18 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
                       )}
                     </Box>
                   </SimpleGrid>
+
+                  {/* Report Generation Panel */}
+                  {latestCompletedRun && (
+                    <Box mt='md'>
+                      <ReportGenerationPanel
+                        projectId={params.projectId}
+                        analysisId={undefined} // Will be set when LLM analysis is completed
+                        runId={latestCompletedRun.id}
+                        disabled={!latestCompletedRun}
+                      />
+                    </Box>
+                  )}
 
                   {isLoadingVideoUrl && (
                     <Alert

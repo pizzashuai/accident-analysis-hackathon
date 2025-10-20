@@ -317,6 +317,44 @@ export const FilterDetectionsResponseSchema = {
     description: 'Response model for filtered detections.'
 } as const;
 
+export const GenerateReportRequestSchema = {
+    properties: {
+        analysis_id: {
+            type: 'string',
+            title: 'Analysis Id'
+        },
+        run_id: {
+            type: 'string',
+            title: 'Run Id'
+        }
+    },
+    type: 'object',
+    required: ['analysis_id', 'run_id'],
+    title: 'GenerateReportRequest',
+    description: 'Request model for generating a PDF report.'
+} as const;
+
+export const GenerateReportResponseSchema = {
+    properties: {
+        report_id: {
+            type: 'string',
+            title: 'Report Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        message: {
+            type: 'string',
+            title: 'Message'
+        }
+    },
+    type: 'object',
+    required: ['report_id', 'status', 'message'],
+    title: 'GenerateReportResponse',
+    description: 'Response model for generating a PDF report.'
+} as const;
+
 export const HTTPValidationErrorSchema = {
     properties: {
         detail: {
@@ -1079,6 +1117,86 @@ export const ProjectsPublicSchema = {
     type: 'object',
     required: ['data', 'count'],
     title: 'ProjectsPublic'
+} as const;
+
+export const ReportListResponseSchema = {
+    properties: {
+        reports: {
+            items: {
+                '$ref': '#/components/schemas/ReportResponse'
+            },
+            type: 'array',
+            title: 'Reports'
+        },
+        total: {
+            type: 'integer',
+            title: 'Total'
+        }
+    },
+    type: 'object',
+    required: ['reports', 'total'],
+    title: 'ReportListResponse',
+    description: 'Response model for report list.'
+} as const;
+
+export const ReportResponseSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            title: 'Id'
+        },
+        project_id: {
+            type: 'string',
+            title: 'Project Id'
+        },
+        run_id: {
+            type: 'string',
+            title: 'Run Id'
+        },
+        analysis_id: {
+            type: 'string',
+            title: 'Analysis Id'
+        },
+        status: {
+            type: 'string',
+            title: 'Status'
+        },
+        pdf_uri: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Pdf Uri'
+        },
+        meta: {
+            additionalProperties: true,
+            type: 'object',
+            title: 'Meta'
+        },
+        created_at: {
+            type: 'string',
+            title: 'Created At'
+        },
+        completed_at: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Completed At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'project_id', 'run_id', 'analysis_id', 'status', 'pdf_uri', 'meta', 'created_at', 'completed_at'],
+    title: 'ReportResponse',
+    description: 'Response model for report data.'
 } as const;
 
 export const StartAnalysisRequestSchema = {

@@ -2,7 +2,7 @@ import json
 import logging
 import tempfile
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import cv2
@@ -923,6 +923,47 @@ def analyze_accident_llm_task(
                     f"Successfully completed LLM analysis for project {project_id}"
                 )
 
+                # Store analysis result in Redis for PDF generation
+                try:
+                    import json
+                    redis_client = event_publisher.redis_client
+                    analysis_key = f"llm_analysis_result:{analysis_id}"
+                    redis_client.setex(analysis_key, 3600, json.dumps(result))  # Store for 1 hour
+                    logger.info(f"Stored analysis result in Redis with key: {analysis_key}")
+                except Exception as e:
+                    logger.warning(f"Could not store analysis result in Redis: {e}")
+
+                # Automatically trigger PDF report generation
+                try:
+                    from src.common.features.report.crud import create_report
+                    
+                    # Create report record
+                    report = create_report(
+                        db=session,
+                        project_id=project_uuid,
+                        run_id=run_uuid,
+                        analysis_id=analysis_id,
+                        meta={
+                            "auto_generated": True,
+                            "analysis_completed_at": datetime.utcnow().isoformat(),
+                            "track_ids": track_ids,
+                        }
+                    )
+                    
+                    # Trigger PDF generation task
+                    generate_pdf_report_task.delay(
+                        report_id=str(report.id),
+                        project_id=project_id,
+                        run_id=run_id,
+                        analysis_id=analysis_id,
+                    )
+                    
+                    logger.info(f"Automatically triggered PDF generation for report {report.id}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to trigger automatic PDF generation: {e}")
+                    # Don't fail the entire analysis if PDF generation fails
+
                 return {"success": True, "analysis_id": analysis_id, "result": result}
 
             finally:
@@ -941,6 +982,241 @@ def analyze_accident_llm_task(
             event_publisher.close()
         except:
             pass  # Ignore errors in error publishing
+
+        # Re-raise the exception to mark task as failed
+        raise
+
+
+@celery_app.task(bind=True)
+def generate_pdf_report_task(
+    self, report_id: str, project_id: str, run_id: str, analysis_id: str
+):
+    """
+    Generate PDF report from LLM analysis results.
+    
+    Args:
+        report_id: Report UUID string
+        project_id: Project UUID string
+        run_id: Processing run UUID string
+        analysis_id: LLM analysis session ID
+    """
+    try:
+        report_uuid = uuid.UUID(report_id)
+        project_uuid = uuid.UUID(project_id)
+        run_uuid = uuid.UUID(run_id)
+    except ValueError as e:
+        logger.error(f"Invalid UUID format: {e}")
+        raise ValueError(f"Invalid UUID format: {e}")
+
+    try:
+        with Session(engine) as session:
+            # Get report record
+            from src.common.features.report.crud import get_report, update_report_status, update_report_pdf_uri
+            
+            report = get_report(db=session, report_id=report_uuid)
+            if not report:
+                raise ValueError(f"Report {report_id} not found")
+
+            # Update status to generating
+            update_report_status(db=session, report_id=report_uuid, status="generating")
+            logger.info(f"Started PDF generation for report {report_id}")
+
+            # Get project and validate
+            project = session.get(Project, project_uuid)
+            if not project:
+                raise ValueError(f"Project {project_id} not found")
+
+            if not project.video_id:
+                raise ValueError("Project has no video")
+
+            # Get video asset
+            video_asset = session.get(MediaAsset, project.video_id)
+            if not video_asset:
+                raise ValueError("Video asset not found")
+
+            # Get processing run
+            from src.common.features.processing.crud import get_processing_run
+            run = get_processing_run(db=session, run_id=run_uuid)
+            if not run:
+                raise ValueError(f"Processing run {run_id} not found")
+
+            # Find filtered JSONL artifact for this run
+            from src.common.database.models.artifact_table import Artifact
+            artifacts = (
+                session.query(Artifact)
+                .filter(Artifact.run_id == run_uuid, Artifact.kind == "jsonl_detections")
+                .all()
+            )
+
+            filtered_artifact = None
+            for artifact in artifacts:
+                if artifact.meta and "filtered_track_ids" in artifact.meta:
+                    filtered_artifact = artifact
+                    break
+
+            if not filtered_artifact:
+                raise ValueError("No filtered detections found")
+
+            # Download video from S3
+            bucket, key = parse_s3_uri(video_asset.uri)
+            presigned_url = generate_presigned_url(bucket, key)
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video:
+                response = requests.get(presigned_url, stream=True)
+                response.raise_for_status()
+
+                for chunk in response.iter_content(chunk_size=8192):
+                    temp_video.write(chunk)
+
+                temp_video_path = Path(temp_video.name)
+
+            # Download filtered JSONL artifact
+            bucket, key = parse_s3_uri(filtered_artifact.uri)
+            presigned_url = generate_presigned_url(bucket, key)
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_jsonl:
+                response = requests.get(presigned_url)
+                response.raise_for_status()
+                temp_jsonl.write(response.text)
+                temp_jsonl_path = Path(temp_jsonl.name)
+
+            # Get LLM analysis result from Redis
+            from src.common.features.postprocess.event_publisher import LLMEventPublisher
+            event_publisher = LLMEventPublisher()
+            
+            # Try to get analysis result from Redis
+            analysis_result = None
+            try:
+                redis_client = event_publisher.redis_client
+                analysis_key = f"llm_analysis_result:{analysis_id}"
+                analysis_data = redis_client.get(analysis_key)
+                if analysis_data:
+                    import json
+                    analysis_result = json.loads(analysis_data)
+                    logger.info(f"Retrieved analysis result from Redis for {analysis_id}")
+            except Exception as e:
+                logger.warning(f"Could not get analysis result from Redis: {e}")
+
+            if not analysis_result:
+                # Fallback: create a basic analysis result
+                analysis_result = {
+                    "analysis": "Analysis results not available in cache. Please regenerate the analysis.",
+                    "timeline": [],
+                    "collision_data": {
+                        "frame": 0,
+                        "timestamp": 0.0
+                    }
+                }
+                logger.warning("Using fallback analysis result")
+
+            # Generate collision screenshots
+            from src.common.features.report.screenshot_generator import generate_collision_screenshots
+            
+            screenshot_result = generate_collision_screenshots(
+                video_path=str(temp_video_path),
+                detections_jsonl_path=str(temp_jsonl_path),
+                analysis_result=analysis_result,
+                output_dir=None  # Use temporary directory
+            )
+
+            if not screenshot_result["success"]:
+                logger.warning(f"Screenshot generation failed: {screenshot_result['error']}")
+
+            # Generate PDF report
+            from src.common.features.report.pdf_generator import generate_pdf_report
+            
+            pdf_result = generate_pdf_report(
+                analysis_text=analysis_result.get("analysis", "No analysis available"),
+                project_title=project.title,
+                project_description=project.description,
+                video_screenshot_path=screenshot_result.get("video_screenshot_path"),
+                map_overlay_path=screenshot_result.get("map_overlay_path"),
+                metadata={
+                    "analysis_id": analysis_id,
+                    "track_ids": analysis_result.get("track_ids", []),
+                    "collision_frame": screenshot_result.get("collision_frame", 0),
+                    "collision_timestamp": screenshot_result.get("collision_timestamp", 0.0),
+                    "collision_point": screenshot_result.get("collision_point", (None, None)),
+                    "generated_at": datetime.utcnow().isoformat(),
+                    "project_id": str(project_id),
+                    "run_id": str(run_id)
+                }
+            )
+
+            if not pdf_result["success"]:
+                raise RuntimeError(f"PDF generation failed: {pdf_result['error']}")
+
+            # Upload PDF to S3
+            pdf_key = f"projects/{project_id}/reports/{report_id}/report.pdf"
+            with open(pdf_result["output_path"], "rb") as pdf_file:
+                upload_result = upload_file_to_s3(
+                    pdf_file, settings.AWS_S3_BUCKET, pdf_key
+                )
+
+            # Update report with PDF URI and metadata
+            meta_updates = {
+                "pdf_size_bytes": Path(pdf_result["output_path"]).stat().st_size,
+                "screenshot_info": {
+                    "video_screenshot_path": screenshot_result.get("video_screenshot_path"),
+                    "map_overlay_path": screenshot_result.get("map_overlay_path"),
+                    "collision_frame": screenshot_result.get("collision_frame"),
+                    "collision_timestamp": screenshot_result.get("collision_timestamp"),
+                    "collision_point": screenshot_result.get("collision_point")
+                },
+                "analysis_metadata": {
+                    "track_ids": analysis_result.get("track_ids", []),
+                    "generated_at": datetime.utcnow().isoformat()
+                }
+            }
+
+            update_report_pdf_uri(
+                db=session,
+                report_id=report_uuid,
+                pdf_uri=upload_result["uri"],
+                meta_updates=meta_updates
+            )
+
+            logger.info(f"Successfully generated PDF report for project {project_id}")
+
+            # Clean up temporary files
+            temp_video_path.unlink(missing_ok=True)
+            temp_jsonl_path.unlink(missing_ok=True)
+            Path(pdf_result["output_path"]).unlink(missing_ok=True)
+            
+            # Clean up screenshot files
+            if screenshot_result.get("video_screenshot_path"):
+                Path(screenshot_result["video_screenshot_path"]).unlink(missing_ok=True)
+            if screenshot_result.get("map_overlay_path"):
+                Path(screenshot_result["map_overlay_path"]).unlink(missing_ok=True)
+
+            return {
+                "success": True,
+                "report_id": report_id,
+                "pdf_uri": upload_result["uri"]
+            }
+
+    except Exception as e:
+        logger.error(f"Failed to generate PDF report for project {project_id}: {e}")
+
+        # Update report status to failed
+        try:
+            with Session(engine) as session:
+                from src.common.features.report.crud import update_report_status
+                update_report_status(
+                    db=session,
+                    report_id=report_uuid,
+                    status="failed",
+                    error_message=str(e)
+                )
+        except Exception as update_error:
+            logger.error(f"Failed to update error status: {update_error}")
+
+        # Clean up temporary files
+        try:
+            temp_video_path.unlink(missing_ok=True)
+            temp_jsonl_path.unlink(missing_ok=True)
+        except:
+            pass
 
         # Re-raise the exception to mark task as failed
         raise

@@ -9,6 +9,7 @@ from src.common.database.models.homography_model_table import HomographyModel
 from src.common.database.models.processing_run_table import ProcessingRun
 from src.common.database.models.detection_table import Detection
 from src.common.database.models.artifact_table import Artifact
+from src.common.database.models.report_table import Report
 
 # Export the Base metadata for alembic
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "ProcessingRun",
     "Detection",
     "Artifact",
+    "Report",
 ]

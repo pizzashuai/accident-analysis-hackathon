@@ -45,7 +45,7 @@ export const JsonlFileSelector = ({
   const handleDownload = useCallback(async (artifactId: string) => {
     setDownloadingArtifactId(artifactId);
     try {
-      const { ProjectsService } = await import('../../client/sdk.gen');
+      const { ProjectsService } = await import('~/client/sdk.gen');
       const response = await ProjectsService.getArtifactDownloadUrl({
         artifactId,
       });

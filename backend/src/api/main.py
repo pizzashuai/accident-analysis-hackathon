@@ -7,6 +7,7 @@ from src.api.routes import (
     login_route,
     private_route,
     projects_route,
+    reports_route,
     users_route,
     video_annotation_route,
 )
@@ -18,6 +19,7 @@ api_router.include_router(users_route.router)
 api_router.include_router(projects_route.router)
 api_router.include_router(video_annotation_route.router)
 api_router.include_router(llm_analysis_route.router)
+api_router.include_router(reports_route.router)
 
 if settings.ENVIRONMENT == "local":
     api_router.include_router(private_route.router)

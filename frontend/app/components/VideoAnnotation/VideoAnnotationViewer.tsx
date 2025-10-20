@@ -629,7 +629,7 @@ export const VideoAnnotationViewer = ({
     setFilterSuccess(null);
 
     try {
-      const { VideoAnnotationService } = await import('../../client/sdk.gen');
+      const { VideoAnnotationService } = await import('~/client/sdk.gen');
 
       const response = await VideoAnnotationService.filterDetectionsByTracks({
         requestBody: {

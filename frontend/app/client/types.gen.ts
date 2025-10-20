@@ -77,6 +77,23 @@ export type FilterDetectionsResponse = {
 };
 
 /**
+ * Request model for generating a PDF report.
+ */
+export type GenerateReportRequest = {
+    analysis_id: string;
+    run_id: string;
+};
+
+/**
+ * Response model for generating a PDF report.
+ */
+export type GenerateReportResponse = {
+    report_id: string;
+    status: string;
+    message: string;
+};
+
+/**
  * Schema for homography model response
  */
 export type HomographyModelPublic = {
@@ -257,6 +274,31 @@ export type ProjectUpdate = {
     description?: (string | null);
 };
 
+/**
+ * Response model for report list.
+ */
+export type ReportListResponse = {
+    reports: Array<ReportResponse>;
+    total: number;
+};
+
+/**
+ * Response model for report data.
+ */
+export type ReportResponse = {
+    id: string;
+    project_id: string;
+    run_id: string;
+    analysis_id: string;
+    status: string;
+    pdf_uri: (string | null);
+    meta: {
+        [key: string]: unknown;
+    };
+    created_at: string;
+    completed_at: (string | null);
+};
+
 export type src__common__features__project__schemas__Message = {
     message: string;
 };
@@ -340,9 +382,20 @@ export type LlmAnalysisStartLlmAnalysisData = {
 
 export type LlmAnalysisStartLlmAnalysisResponse = (StartAnalysisResponse);
 
+export type LlmAnalysisOptionsLlmAnalysisStreamData = {
+    analysisId: string;
+    projectId: string;
+};
+
+export type LlmAnalysisOptionsLlmAnalysisStreamResponse = (unknown);
+
 export type LlmAnalysisStreamLlmAnalysisEventsData = {
     analysisId: string;
     projectId: string;
+    /**
+     * Authentication token for SSE connection
+     */
+    token?: string;
 };
 
 export type LlmAnalysisStreamLlmAnalysisEventsResponse = (unknown);
@@ -550,6 +603,35 @@ export type ProjectsGetArtifactContentData = {
 };
 
 export type ProjectsGetArtifactContentResponse = (unknown);
+
+export type ReportsGenerateReportData = {
+    projectId: string;
+    requestBody: GenerateReportRequest;
+};
+
+export type ReportsGenerateReportResponse = (GenerateReportResponse);
+
+export type ReportsListReportsData = {
+    limit?: number;
+    projectId: string;
+    skip?: number;
+};
+
+export type ReportsListReportsResponse = (ReportListResponse);
+
+export type ReportsGetReportDetailsData = {
+    projectId: string;
+    reportId: string;
+};
+
+export type ReportsGetReportDetailsResponse = (ReportResponse);
+
+export type ReportsDownloadReportData = {
+    projectId: string;
+    reportId: string;
+};
+
+export type ReportsDownloadReportResponse = (unknown);
 
 export type UsersReadUsersData = {
     limit?: number;
