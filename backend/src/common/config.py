@@ -105,6 +105,8 @@ class Settings(BaseSettings):
 
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    GOOGLE_MAP_API_KEY: str
+
 
     @model_validator(mode="after")
     def _enforce_non_default_secrets(self) -> Self:

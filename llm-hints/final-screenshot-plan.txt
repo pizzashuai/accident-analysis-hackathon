@@ -1,0 +1,2 @@
+1. Once the llm agent returns a timeline, screenshot the cctv video at the collision timestamp and save it.
+2. Get Map overlay at the same collision timestamp: call Google Static Maps API with your overlay params to get a PNG
