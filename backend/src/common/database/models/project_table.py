@@ -54,3 +54,4 @@ class Project(Base):
     homography_session = relationship("HomographySession", back_populates="project", uselist=False)
     processing_runs = relationship("ProcessingRun", back_populates="project", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="project", cascade="all, delete-orphan")
+    llm_analyses = relationship("LLMAnalysis", back_populates="project", cascade="all, delete-orphan")

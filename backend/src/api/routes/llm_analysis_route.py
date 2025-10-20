@@ -11,6 +11,7 @@ import logging
 import tempfile
 import uuid
 from pathlib import Path
+from typing import List
 
 import redis
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +23,7 @@ from src.api.deps import CurrentUser, get_db
 from src.common.config import settings
 from src.common.database.models.artifact_table import Artifact
 from src.common.database.models.project_table import Project
+from src.common.database.models.llm_analysis_table import LLMAnalysis
 from src.common.features.storage import (
     generate_presigned_url,
     parse_s3_uri,
@@ -37,6 +39,28 @@ class StartAnalysisRequest(BaseModel):
     """Request model for starting LLM analysis."""
 
     run_id: str
+
+
+class AnalysisResponse(BaseModel):
+    """Response model for LLM analysis data."""
+    
+    id: str
+    project_id: str
+    run_id: str | None
+    analysis_id: str
+    status: str
+    result_data: dict | None
+    track_ids: list[int] | None
+    created_at: str
+    completed_at: str | None
+    error_message: str | None
+
+
+class AnalysisListResponse(BaseModel):
+    """Response model for analysis list."""
+    
+    analyses: List[AnalysisResponse]
+    total: int
 
 
 class StartAnalysisResponse(BaseModel):
@@ -148,6 +172,35 @@ def start_llm_analysis(
             # Write to temporary file
             with open(temp_file_path, "w") as f:
                 f.write(response.text)
+
+            # Create analysis record in database
+            from src.common.features.llm_analysis.crud import create_analysis, delete_analysis
+            
+            # Check if analysis already exists and delete it
+            existing_analysis = session.query(LLMAnalysis).filter(
+                LLMAnalysis.project_id == project_uuid,
+                LLMAnalysis.run_id == run_uuid
+            ).first()
+            
+            if existing_analysis:
+                logger.info(f"Deleting existing analysis {existing_analysis.id} for project {project_id}, run {request.run_id}")
+                delete_analysis(session, existing_analysis.analysis_id)
+            
+            # Extract track IDs from filtered artifact metadata
+            track_ids = []
+            if filtered_artifact.meta and "filtered_track_ids" in filtered_artifact.meta:
+                track_ids = filtered_artifact.meta["filtered_track_ids"]
+            
+            # Create analysis record
+            analysis_record = create_analysis(
+                db=session,
+                project_id=project_uuid,
+                run_id=run_uuid,
+                analysis_id=analysis_id,
+                track_ids=track_ids
+            )
+            
+            logger.info(f"Created analysis record {analysis_record.id} for session {analysis_id}")
 
             # Start Celery task
             analyze_accident_llm_task.delay(
@@ -319,4 +372,177 @@ def stream_llm_analysis_events(
         raise
     except Exception as e:
         logger.error(f"Error streaming LLM analysis events: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/projects/{project_id}", response_model=AnalysisListResponse)
+def list_analyses(
+    project_id: str,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+) -> AnalysisListResponse:
+    """
+    List all LLM analyses for a project.
+    
+    Returns analyses with their status and metadata.
+    """
+    try:
+        project_uuid = uuid.UUID(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project ID format")
+
+    try:
+        # Get project and validate ownership
+        project = session.get(Project, project_uuid)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get analyses
+        from src.common.features.llm_analysis.crud import list_analyses_by_project
+        
+        analyses = list_analyses_by_project(
+            db=session, project_id=project_uuid, skip=skip, limit=limit
+        )
+
+        # Convert to response format
+        analysis_responses = []
+        for analysis in analyses:
+            analysis_responses.append(
+                AnalysisResponse(
+                    id=str(analysis.id),
+                    project_id=str(analysis.project_id),
+                    run_id=str(analysis.run_id) if analysis.run_id else None,
+                    analysis_id=analysis.analysis_id,
+                    status=analysis.status,
+                    result_data=analysis.result_data,
+                    track_ids=analysis.track_ids,
+                    created_at=analysis.created_at.isoformat(),
+                    completed_at=analysis.completed_at.isoformat() if analysis.completed_at else None,
+                    error_message=analysis.error_message,
+                )
+            )
+
+        return AnalysisListResponse(analyses=analysis_responses, total=len(analysis_responses))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing analyses: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/projects/{project_id}/{analysis_id}", response_model=AnalysisResponse)
+def get_analysis(
+    project_id: str,
+    analysis_id: str,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+) -> AnalysisResponse:
+    """
+    Get specific LLM analysis result.
+    
+    Returns complete analysis data including result_data.
+    """
+    try:
+        project_uuid = uuid.UUID(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project ID format")
+
+    try:
+        # Get project and validate ownership
+        project = session.get(Project, project_uuid)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get analysis
+        from src.common.features.llm_analysis.crud import get_analysis
+        
+        analysis = get_analysis(db=session, analysis_id=analysis_id)
+        if not analysis:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+
+        if analysis.project_id != project_uuid:
+            raise HTTPException(
+                status_code=400, detail="Analysis does not belong to this project"
+            )
+
+        return AnalysisResponse(
+            id=str(analysis.id),
+            project_id=str(analysis.project_id),
+            run_id=str(analysis.run_id) if analysis.run_id else None,
+            analysis_id=analysis.analysis_id,
+            status=analysis.status,
+            result_data=analysis.result_data,
+            track_ids=analysis.track_ids,
+            created_at=analysis.created_at.isoformat(),
+            completed_at=analysis.completed_at.isoformat() if analysis.completed_at else None,
+            error_message=analysis.error_message,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting analysis: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/projects/{project_id}/{analysis_id}")
+def delete_analysis(
+    project_id: str,
+    analysis_id: str,
+    current_user: CurrentUser,
+    session: Session = Depends(get_db),
+):
+    """
+    Delete/reset an LLM analysis.
+    
+    This removes the analysis from the database but leaves reports intact.
+    """
+    try:
+        project_uuid = uuid.UUID(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid project ID format")
+
+    try:
+        # Get project and validate ownership
+        project = session.get(Project, project_uuid)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if project.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get analysis
+        from src.common.features.llm_analysis.crud import get_analysis, delete_analysis
+        
+        analysis = get_analysis(db=session, analysis_id=analysis_id)
+        if not analysis:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+
+        if analysis.project_id != project_uuid:
+            raise HTTPException(
+                status_code=400, detail="Analysis does not belong to this project"
+            )
+
+        # Delete analysis
+        success = delete_analysis(db=session, analysis_id=analysis_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete analysis")
+
+        logger.info(f"Deleted analysis {analysis_id} for project {project_id}")
+
+        return {"message": "Analysis deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting analysis: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

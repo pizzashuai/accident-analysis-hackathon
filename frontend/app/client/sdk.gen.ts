@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LlmAnalysisStartLlmAnalysisData, LlmAnalysisStartLlmAnalysisResponse, LlmAnalysisOptionsLlmAnalysisStreamData, LlmAnalysisOptionsLlmAnalysisStreamResponse, LlmAnalysisStreamLlmAnalysisEventsData, LlmAnalysisStreamLlmAnalysisEventsResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsUpdateVideoStartTimeData, ProjectsUpdateVideoStartTimeResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, ProjectsGetArtifactContentData, ProjectsGetArtifactContentResponse, ReportsGenerateReportData, ReportsGenerateReportResponse, ReportsListReportsData, ReportsListReportsResponse, ReportsGetReportDetailsData, ReportsGetReportDetailsResponse, ReportsDownloadReportData, ReportsDownloadReportResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse, VideoAnnotationFilterDetectionsByTracksData, VideoAnnotationFilterDetectionsByTracksResponse, VideoAnnotationGetFilteredArtifactDownloadUrlData, VideoAnnotationGetFilteredArtifactDownloadUrlResponse } from './types.gen';
+import type { LlmAnalysisStartLlmAnalysisData, LlmAnalysisStartLlmAnalysisResponse, LlmAnalysisOptionsLlmAnalysisStreamData, LlmAnalysisOptionsLlmAnalysisStreamResponse, LlmAnalysisStreamLlmAnalysisEventsData, LlmAnalysisStreamLlmAnalysisEventsResponse, LlmAnalysisListAnalysesData, LlmAnalysisListAnalysesResponse, LlmAnalysisGetAnalysisData, LlmAnalysisGetAnalysisResponse, LlmAnalysisDeleteAnalysisData, LlmAnalysisDeleteAnalysisResponse, LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, ProjectsCreateProjectRouteData, ProjectsCreateProjectRouteResponse, ProjectsReadProjectsData, ProjectsReadProjectsResponse, ProjectsReadProjectData, ProjectsReadProjectResponse, ProjectsUpdateProjectRouteData, ProjectsUpdateProjectRouteResponse, ProjectsDeleteProjectRouteData, ProjectsDeleteProjectRouteResponse, ProjectsUploadVideoData, ProjectsUploadVideoResponse, ProjectsGetMediaPresignedUrlData, ProjectsGetMediaPresignedUrlResponse, ProjectsUpdateVideoStartTimeData, ProjectsUpdateVideoStartTimeResponse, ProjectsSetProjectLocationData, ProjectsSetProjectLocationResponse, ProjectsExtractVideoFrameData, ProjectsExtractVideoFrameResponse, ProjectsCreateHomographySessionData, ProjectsCreateHomographySessionResponse, ProjectsGetHomographySessionData, ProjectsGetHomographySessionResponse, ProjectsAddHomographyPairData, ProjectsAddHomographyPairResponse, ProjectsUpdateHomographyPairsData, ProjectsUpdateHomographyPairsResponse, ProjectsDeleteHomographyPairData, ProjectsDeleteHomographyPairResponse, ProjectsSolveHomographySessionData, ProjectsSolveHomographySessionResponse, ProjectsGetHomographyModelData, ProjectsGetHomographyModelResponse, ProjectsExportHomographySessionData, ProjectsExportHomographySessionResponse, ProjectsStartProcessingData, ProjectsStartProcessingResponse, ProjectsListProcessingRunsRouteData, ProjectsListProcessingRunsRouteResponse, ProjectsGetProcessingRunRouteData, ProjectsGetProcessingRunRouteResponse, ProjectsGetDetectionsRouteData, ProjectsGetDetectionsRouteResponse, ProjectsGetDetectionsByFrameRouteData, ProjectsGetDetectionsByFrameRouteResponse, ProjectsGenerateAnnotatedVideoRouteData, ProjectsGenerateAnnotatedVideoRouteResponse, ProjectsListArtifactsRouteData, ProjectsListArtifactsRouteResponse, ProjectsGetArtifactDownloadUrlData, ProjectsGetArtifactDownloadUrlResponse, ProjectsGetArtifactContentData, ProjectsGetArtifactContentResponse, ReportsGenerateReportData, ReportsGenerateReportResponse, ReportsListReportsData, ReportsListReportsResponse, ReportsGetReportDetailsData, ReportsGetReportDetailsResponse, ReportsDownloadReportData, ReportsDownloadReportResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserRouteData, UsersCreateUserRouteResponse, UsersReadUserMeResponse, UsersDeleteUserMeRouteResponse, UsersUpdateUserMeRouteData, UsersUpdateUserMeRouteResponse, UsersUpdatePasswordMeRouteData, UsersUpdatePasswordMeRouteResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserRouteData, UsersUpdateUserRouteResponse, UsersDeleteUserRouteData, UsersDeleteUserRouteResponse, VideoAnnotationFilterDetectionsByTracksData, VideoAnnotationFilterDetectionsByTracksResponse, VideoAnnotationGetFilteredArtifactDownloadUrlData, VideoAnnotationGetFilteredArtifactDownloadUrlResponse } from './types.gen';
 
 export class LlmAnalysisService {
     /**
@@ -86,6 +86,85 @@ export class LlmAnalysisService {
             },
             query: {
                 token: data.token
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * List Analyses
+     * List all LLM analyses for a project.
+     *
+     * Returns analyses with their status and metadata.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.skip
+     * @param data.limit
+     * @returns AnalysisListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listAnalyses(data: LlmAnalysisListAnalysesData): CancelablePromise<LlmAnalysisListAnalysesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm-analysis/projects/{project_id}',
+            path: {
+                project_id: data.projectId
+            },
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Analysis
+     * Get specific LLM analysis result.
+     *
+     * Returns complete analysis data including result_data.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @returns AnalysisResponse Successful Response
+     * @throws ApiError
+     */
+    public static getAnalysis(data: LlmAnalysisGetAnalysisData): CancelablePromise<LlmAnalysisGetAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm-analysis/projects/{project_id}/{analysis_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Delete Analysis
+     * Delete/reset an LLM analysis.
+     *
+     * This removes the analysis from the database but leaves reports intact.
+     * @param data The data for the request.
+     * @param data.projectId
+     * @param data.analysisId
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static deleteAnalysis(data: LlmAnalysisDeleteAnalysisData): CancelablePromise<LlmAnalysisDeleteAnalysisResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/v1/llm-analysis/projects/{project_id}/{analysis_id}',
+            path: {
+                project_id: data.projectId,
+                analysis_id: data.analysisId
             },
             errors: {
                 422: 'Validation Error'

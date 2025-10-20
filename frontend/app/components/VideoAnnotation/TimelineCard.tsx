@@ -23,6 +23,8 @@ interface TimelineCardProps {
 }
 
 const getPhaseIcon = (phase: string) => {
+  if (!phase) return <IconClock size={16} />;
+
   const phaseLower = phase.toLowerCase();
   if (phaseLower.includes('approach') || phaseLower.includes('approaching')) {
     return <IconArrowRight size={16} />;
@@ -44,6 +46,8 @@ const getPhaseIcon = (phase: string) => {
 };
 
 const getPhaseColor = (phase: string) => {
+  if (!phase) return 'gray';
+
   const phaseLower = phase.toLowerCase();
   if (phaseLower.includes('approach') || phaseLower.includes('approaching')) {
     return 'blue';
@@ -126,7 +130,7 @@ export const TimelineCard = ({
             size='sm'
             variant={isActive ? 'filled' : 'light'}
           >
-            {phase}
+            {phase || 'Unknown'}
           </Badge>
 
           <Stack gap={2} style={{ flex: 1 }}>

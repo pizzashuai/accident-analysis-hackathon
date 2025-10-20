@@ -13,7 +13,7 @@ class Report(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     project_id = Column(UUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
     run_id = Column(UUID(as_uuid=True), ForeignKey("processing_run.id", ondelete="SET NULL"))
-    analysis_id = Column(String, nullable=False)  # LLM analysis session ID
+    llm_analysis_id = Column(UUID(as_uuid=True), ForeignKey("llm_analysis.id", ondelete="SET NULL"), nullable=True)
     status = Column(String, nullable=False, default="pending")
     pdf_uri = Column(String, nullable=True)  # S3 URI for generated PDF
     meta = Column(JSONB, nullable=False, default={})  # Analysis metadata, screenshots info
@@ -23,6 +23,7 @@ class Report(Base):
     # Relationships
     project = relationship("Project", back_populates="reports")
     run = relationship("ProcessingRun", back_populates="reports")
+    llm_analysis = relationship("LLMAnalysis", back_populates="reports")
     
     __table_args__ = (
         CheckConstraint(

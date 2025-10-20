@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LlmAnalysisService, type ApiError } from '~/client';
 import { useCustomToast } from './useCustomToast';
 import { useSSE, type SSEEvent } from './useSSE';
@@ -85,6 +85,96 @@ export const useLLMAnalysis = (projectId: string, runId?: string) => {
     showThinking: true,
     showToolCalls: true,
   });
+
+  // Load stored analysis data on mount
+  const { data: analysesData } = useAnalysisList(projectId);
+
+  useEffect(() => {
+    // Load the most recent completed analysis for this project
+    if (analysesData && analysesData.analyses.length > 0) {
+      const latestAnalysis = analysesData.analyses[0]; // Already sorted by created_at desc
+
+      if (latestAnalysis.status === 'completed' && latestAnalysis.result_data) {
+        console.log('Loading stored analysis data:', latestAnalysis);
+
+        // Extract frontend data from stored analysis
+        const frontendData = latestAnalysis.result_data?.frontend_data;
+        if (frontendData) {
+          // Map timeline data to ensure proper structure
+          const timelineData = (frontendData as any).timeline;
+          const mappedTimeline = timelineData
+            ? timelineData.map((item: any) => ({
+                phase: item.phase || item.stage || 'Unknown',
+                frame: item.frame || 0,
+                timestamp: item.timestamp || 0,
+                speed_mph: item.speed_mph,
+                distance_m: item.distance_m,
+                description:
+                  item.description || item.narrative || 'No description',
+              }))
+            : null;
+
+          setState((prev) => ({
+            ...prev,
+            analysisId: latestAnalysis.analysis_id,
+            currentPhase: 'complete',
+            reportContent: (frontendData as any).analysis_text || '',
+            timeline: mappedTimeline,
+            weatherData: (frontendData as any).weather_data || null,
+            collisionResult: (frontendData as any).collision_detected
+              ? 'Collision detected'
+              : null,
+            // Convert tool calls from execution log
+            toolCalls: (frontendData as any).tool_calls
+              ? (frontendData as any).tool_calls.map(
+                  (logEntry: any, index: number) => ({
+                    id: `stored_${index}`,
+                    tool: logEntry.tool || 'unknown',
+                    input: logEntry.input || {},
+                    result: logEntry.result || {},
+                    reasoning: logEntry.reasoning || '',
+                    status: 'completed' as const,
+                  })
+                )
+              : [],
+          }));
+        } else {
+          // Fallback: try to extract data from legacy format
+          const resultData = latestAnalysis.result_data;
+          if (resultData) {
+            // Map timeline data to ensure proper structure for legacy format too
+            const timelineData = (resultData as any).timeline;
+            const mappedTimeline = timelineData
+              ? timelineData.map((item: any) => ({
+                  phase: item.phase || item.stage || 'Unknown',
+                  frame: item.frame || 0,
+                  timestamp: item.timestamp || 0,
+                  speed_mph: item.speed_mph,
+                  distance_m: item.distance_m,
+                  description:
+                    item.description || item.narrative || 'No description',
+                }))
+              : null;
+
+            setState((prev) => ({
+              ...prev,
+              analysisId: latestAnalysis.analysis_id,
+              currentPhase: 'complete',
+              reportContent:
+                (resultData as any).report ||
+                (resultData as any).analysis ||
+                '',
+              timeline: mappedTimeline,
+              weatherData: (resultData as any).weather_data || null,
+              collisionResult: (resultData as any).collision_detected
+                ? 'Collision detected'
+                : null,
+            }));
+          }
+        }
+      }
+    }
+  }, [analysesData]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -363,3 +453,64 @@ export const useLLMAnalysis = (projectId: string, runId?: string) => {
     isStarting: startAnalysisMutation.isPending,
   };
 };
+
+/**
+ * Hook to list stored LLM analyses for a project.
+ */
+export function useAnalysisList(projectId: string, skip = 0, limit = 100) {
+  return useQuery({
+    queryKey: ['llm-analyses', projectId, skip, limit],
+    queryFn: async () => {
+      const response = await LlmAnalysisService.listAnalyses({
+        projectId,
+        skip,
+        limit,
+      });
+      return response;
+    },
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * Hook to get a specific LLM analysis result.
+ */
+export function useAnalysisResult(projectId: string, analysisId: string) {
+  return useQuery({
+    queryKey: ['llm-analysis', projectId, analysisId],
+    queryFn: async () => {
+      const response = await LlmAnalysisService.getAnalysis({
+        projectId,
+        analysisId,
+      });
+      return response;
+    },
+    enabled: !!projectId && !!analysisId,
+  });
+}
+
+/**
+ * Hook to delete/reset an LLM analysis.
+ */
+export function useDeleteAnalysis(projectId: string) {
+  const queryClient = useQueryClient();
+  const { showToast } = useCustomToast();
+
+  return useMutation({
+    mutationFn: async (analysisId: string) => {
+      const response = await LlmAnalysisService.deleteAnalysis({
+        projectId,
+        analysisId,
+      });
+      return response;
+    },
+    onSuccess: () => {
+      showToast('Analysis deleted successfully', 'success');
+      // Invalidate analyses list to refresh
+      queryClient.invalidateQueries({ queryKey: ['llm-analyses', projectId] });
+    },
+    onError: (error) => {
+      showToast(`Failed to delete analysis: ${error.message}`, 'error');
+    },
+  });
+}

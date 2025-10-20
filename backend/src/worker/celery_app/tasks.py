@@ -851,33 +851,47 @@ def analyze_accident_llm_task(
             if not run:
                 raise ValueError(f"Processing run {run_id} not found")
 
+            # Extract track IDs from the filtered JSONL file metadata
+            # The file should have been filtered by track IDs already
+            track_ids = []
+            try:
+                with open(detections_file_path) as f:
+                    for line in f:
+                        if line.strip():
+                            import json
+
+                            detection = json.loads(line.strip())
+                            track_id = detection.get("track_id")
+                            if track_id is not None and track_id not in track_ids:
+                                track_ids.append(track_id)
+            except Exception as e:
+                logger.warning(f"Could not extract track IDs from file: {e}")
+                # Fallback: use common track IDs
+                track_ids = [7, 14]  # Default track IDs
+
+            if not track_ids:
+                raise ValueError("No track IDs found in detections file")
+
+            logger.info(f"Analyzing tracks: {track_ids}")
+
+            # Get existing analysis record from database
+            from src.common.features.llm_analysis.crud import get_analysis, update_analysis_status, update_analysis_result, update_analysis_error
+            
+            # Get existing analysis record (created by API route)
+            analysis_record = get_analysis(session, analysis_id)
+            if not analysis_record:
+                raise ValueError(f"Analysis record {analysis_id} not found - it should have been created by the API route")
+            
+            logger.info(f"Found existing analysis record {analysis_record.id} for session {analysis_id}")
+
+            # Update status to analyzing
+            update_analysis_status(session, analysis_id, "analyzing")
+
             # Initialize event publisher
             event_publisher = LLMEventPublisher()
             logger.info(f"Initialized event publisher for analysis {analysis_id}")
 
             try:
-                # Extract track IDs from the filtered JSONL file metadata
-                # The file should have been filtered by track IDs already
-                track_ids = []
-                try:
-                    with open(detections_file_path) as f:
-                        for line in f:
-                            if line.strip():
-                                import json
-
-                                detection = json.loads(line.strip())
-                                track_id = detection.get("track_id")
-                                if track_id is not None and track_id not in track_ids:
-                                    track_ids.append(track_id)
-                except Exception as e:
-                    logger.warning(f"Could not extract track IDs from file: {e}")
-                    # Fallback: use common track IDs
-                    track_ids = [7, 14]  # Default track IDs
-
-                if not track_ids:
-                    raise ValueError("No track IDs found in detections file")
-
-                logger.info(f"Analyzing tracks: {track_ids}")
 
                 # Create LLM agent configuration
                 config = LLMAgentConfig(
@@ -923,15 +937,63 @@ def analyze_accident_llm_task(
                     f"Successfully completed LLM analysis for project {project_id}"
                 )
 
-                # Store analysis result in Redis for PDF generation
+                # Store analysis result in database with complete data for frontend display
                 try:
-                    import json
-                    redis_client = event_publisher.redis_client
-                    analysis_key = f"llm_analysis_result:{analysis_id}"
-                    redis_client.setex(analysis_key, 3600, json.dumps(result))  # Store for 1 hour
-                    logger.info(f"Stored analysis result in Redis with key: {analysis_key}")
+                    # Extract timeline and tool call data from the result for frontend display
+                    enhanced_result = result.copy()
+                    
+                    # Extract timeline from tool results if available
+                    timeline_data = None
+                    weather_data = None
+                    
+                    # Look for timeline data in tool results
+                    if "execution_log" in result:
+                        for log_entry in result["execution_log"]:
+                            if isinstance(log_entry, dict):
+                                tool_name = log_entry.get("tool")
+                                tool_result = log_entry.get("result", {})
+                                
+                                if isinstance(tool_result, dict):
+                                    # Extract timeline from build_timeline tool
+                                    if tool_name == "build_timeline" and tool_result.get("success"):
+                                        timeline_data = tool_result.get("timeline", [])
+                                    # Extract weather data from get_weather_data tool
+                                    elif tool_name == "get_weather_data" and tool_result.get("success"):
+                                        weather_data = tool_result.get("weather_data")
+                    
+                    # Add structured data for frontend
+                    enhanced_result["frontend_data"] = {
+                        "timeline": timeline_data,
+                        "weather_data": weather_data,
+                        "tool_calls": result.get("execution_log", []),
+                        "analysis_text": result.get("report", ""),
+                        "collision_detected": result.get("collision_detected", False),
+                        "track_ids": track_ids
+                    }
+                    
+                    # Extract collision frame and timestamp for report generation
+                    collision_frame = None
+                    collision_timestamp = None
+                    
+                    if timeline_data:
+                        for event in timeline_data:
+                            if isinstance(event, dict) and event.get("type") == "collision":
+                                collision_frame = event.get("frame")
+                                collision_timestamp = event.get("timestamp")
+                                break
+                    
+                    # Add collision data for report generation
+                    if collision_frame is not None and collision_timestamp is not None:
+                        enhanced_result["collision_data"] = {
+                            "frame": collision_frame,
+                            "timestamp": collision_timestamp
+                        }
+                    
+                    update_analysis_result(session, analysis_id, enhanced_result)
+                    logger.info(f"Stored enhanced analysis result in database for {analysis_id}")
                 except Exception as e:
-                    logger.warning(f"Could not store analysis result in Redis: {e}")
+                    logger.error(f"Could not store analysis result in database: {e}")
+                    # Don't fail the entire analysis if database storage fails
 
                 # Automatically trigger PDF report generation
                 try:
@@ -942,7 +1004,7 @@ def analyze_accident_llm_task(
                         db=session,
                         project_id=project_uuid,
                         run_id=run_uuid,
-                        analysis_id=analysis_id,
+                        llm_analysis_id=analysis_record.id,
                         meta={
                             "auto_generated": True,
                             "analysis_completed_at": datetime.utcnow().isoformat(),
@@ -955,7 +1017,7 @@ def analyze_accident_llm_task(
                         report_id=str(report.id),
                         project_id=project_id,
                         run_id=run_id,
-                        analysis_id=analysis_id,
+                        llm_analysis_id=str(analysis_record.id),
                     )
                     
                     logger.info(f"Automatically triggered PDF generation for report {report.id}")
@@ -983,13 +1045,21 @@ def analyze_accident_llm_task(
         except:
             pass  # Ignore errors in error publishing
 
+        # Update analysis status to failed
+        try:
+            with Session(engine) as session:
+                from src.common.features.llm_analysis.crud import update_analysis_error
+                update_analysis_error(session, analysis_id, str(e))
+        except Exception as db_error:
+            logger.error(f"Could not update analysis error status: {db_error}")
+
         # Re-raise the exception to mark task as failed
         raise
 
 
 @celery_app.task(bind=True)
 def generate_pdf_report_task(
-    self, report_id: str, project_id: str, run_id: str, analysis_id: str
+    self, report_id: str, project_id: str, run_id: str, llm_analysis_id: str
 ):
     """
     Generate PDF report from LLM analysis results.
@@ -998,12 +1068,13 @@ def generate_pdf_report_task(
         report_id: Report UUID string
         project_id: Project UUID string
         run_id: Processing run UUID string
-        analysis_id: LLM analysis session ID
+        llm_analysis_id: LLM analysis UUID string
     """
     try:
         report_uuid = uuid.UUID(report_id)
         project_uuid = uuid.UUID(project_id)
         run_uuid = uuid.UUID(run_id)
+        llm_analysis_uuid = uuid.UUID(llm_analysis_id)
     except ValueError as e:
         logger.error(f"Invalid UUID format: {e}")
         raise ValueError(f"Invalid UUID format: {e}")
@@ -1080,34 +1151,18 @@ def generate_pdf_report_task(
                 temp_jsonl.write(response.text)
                 temp_jsonl_path = Path(temp_jsonl.name)
 
-            # Get LLM analysis result from Redis
-            from src.common.features.postprocess.event_publisher import LLMEventPublisher
-            event_publisher = LLMEventPublisher()
+            # Get LLM analysis result from database
+            from src.common.features.llm_analysis.crud import get_analysis_by_id
             
-            # Try to get analysis result from Redis
-            analysis_result = None
-            try:
-                redis_client = event_publisher.redis_client
-                analysis_key = f"llm_analysis_result:{analysis_id}"
-                analysis_data = redis_client.get(analysis_key)
-                if analysis_data:
-                    import json
-                    analysis_result = json.loads(analysis_data)
-                    logger.info(f"Retrieved analysis result from Redis for {analysis_id}")
-            except Exception as e:
-                logger.warning(f"Could not get analysis result from Redis: {e}")
-
-            if not analysis_result:
-                # Fallback: create a basic analysis result
-                analysis_result = {
-                    "analysis": "Analysis results not available in cache. Please regenerate the analysis.",
-                    "timeline": [],
-                    "collision_data": {
-                        "frame": 0,
-                        "timestamp": 0.0
-                    }
-                }
-                logger.warning("Using fallback analysis result")
+            analysis_record = get_analysis_by_id(db=session, id=llm_analysis_uuid)
+            if not analysis_record:
+                raise ValueError(f"LLM analysis {llm_analysis_id} not found")
+            
+            if not analysis_record.result_data:
+                raise ValueError(f"LLM analysis {llm_analysis_id} has no result data")
+            
+            analysis_result = analysis_record.result_data
+            logger.info(f"Retrieved analysis result from database for {llm_analysis_id}")
 
             # Generate collision screenshots
             from src.common.features.report.screenshot_generator import generate_collision_screenshots
@@ -1126,13 +1181,13 @@ def generate_pdf_report_task(
             from src.common.features.report.pdf_generator import generate_pdf_report
             
             pdf_result = generate_pdf_report(
-                analysis_text=analysis_result.get("analysis", "No analysis available"),
+                analysis_text=analysis_result.get("analysis", "") or analysis_result.get("report", "No analysis available"),
                 project_title=project.title,
                 project_description=project.description,
                 video_screenshot_path=screenshot_result.get("video_screenshot_path"),
                 map_overlay_path=screenshot_result.get("map_overlay_path"),
                 metadata={
-                    "analysis_id": analysis_id,
+                    "analysis_id": llm_analysis_id,
                     "track_ids": analysis_result.get("track_ids", []),
                     "collision_frame": screenshot_result.get("collision_frame", 0),
                     "collision_timestamp": screenshot_result.get("collision_timestamp", 0.0),

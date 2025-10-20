@@ -15,8 +15,8 @@ def create_report(
     db: Session,
     project_id: uuid.UUID,
     run_id: uuid.UUID,
-    analysis_id: str,
-    meta: dict = None
+    llm_analysis_id: uuid.UUID,
+    meta: Optional[dict] = None
 ) -> Report:
     """
     Create a new report record.
@@ -25,7 +25,7 @@ def create_report(
         db: Database session
         project_id: Project UUID
         run_id: Processing run UUID
-        analysis_id: LLM analysis session ID
+        llm_analysis_id: LLM analysis UUID
         meta: Additional metadata
         
     Returns:
@@ -37,7 +37,7 @@ def create_report(
     report = Report(
         project_id=project_id,
         run_id=run_id,
-        analysis_id=analysis_id,
+        llm_analysis_id=llm_analysis_id,
         status="pending",
         meta=meta
     )
@@ -161,22 +161,106 @@ def update_report_pdf_uri(
     return report
 
 
-def get_report_by_analysis_id(
+def get_reports_by_analysis(
     db: Session,
-    analysis_id: str
-) -> Optional[Report]:
+    llm_analysis_id: uuid.UUID
+) -> List[Report]:
     """
-    Get report by analysis ID.
+    Get all reports for a specific LLM analysis.
     
     Args:
         db: Database session
-        analysis_id: LLM analysis session ID
+        llm_analysis_id: LLM analysis UUID
         
     Returns:
-        Report instance or None
+        List of Report instances
     """
     return (
         db.query(Report)
-        .filter(Report.analysis_id == analysis_id)
-        .first()
+        .filter(Report.llm_analysis_id == llm_analysis_id)
+        .order_by(desc(Report.created_at))
+        .all()
     )
+
+
+def delete_report(db: Session, report_id: uuid.UUID) -> bool:
+    """
+    Delete a report by ID.
+    
+    Args:
+        db: Database session
+        report_id: Report UUID
+        
+    Returns:
+        True if deleted, False if not found
+    """
+    report = db.get(Report, report_id)
+    if not report:
+        return False
+    
+    db.delete(report)
+    db.commit()
+    return True
+
+
+def delete_failed_reports_for_analysis(
+    db: Session,
+    llm_analysis_id: uuid.UUID
+) -> int:
+    """
+    Delete all failed reports for a specific LLM analysis.
+    
+    Args:
+        db: Database session
+        llm_analysis_id: LLM analysis UUID
+        
+    Returns:
+        Number of reports deleted
+    """
+    reports_to_delete = (
+        db.query(Report)
+        .filter(
+            Report.llm_analysis_id == llm_analysis_id,
+            Report.status == "failed"
+        )
+        .all()
+    )
+    
+    count = len(reports_to_delete)
+    for report in reports_to_delete:
+        db.delete(report)
+    
+    if count > 0:
+        db.commit()
+    
+    return count
+
+
+def delete_all_reports_for_analysis(
+    db: Session,
+    llm_analysis_id: uuid.UUID
+) -> int:
+    """
+    Delete all reports for a specific LLM analysis (regardless of status).
+    
+    Args:
+        db: Database session
+        llm_analysis_id: LLM analysis UUID
+        
+    Returns:
+        Number of reports deleted
+    """
+    reports_to_delete = (
+        db.query(Report)
+        .filter(Report.llm_analysis_id == llm_analysis_id)
+        .all()
+    )
+    
+    count = len(reports_to_delete)
+    for report in reports_to_delete:
+        db.delete(report)
+    
+    if count > 0:
+        db.commit()
+    
+    return count

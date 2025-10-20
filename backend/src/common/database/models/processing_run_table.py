@@ -24,3 +24,4 @@ class ProcessingRun(Base):
     detections = relationship("Detection", back_populates="run", cascade="all, delete-orphan")
     artifacts = relationship("Artifact", back_populates="run", cascade="all, delete-orphan")
     reports = relationship("Report", back_populates="run", cascade="all, delete-orphan")
+    llm_analyses = relationship("LLMAnalysis", back_populates="run")

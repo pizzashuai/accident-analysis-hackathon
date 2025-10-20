@@ -14,6 +14,8 @@ import {
   Tooltip,
   Modal,
   Box,
+  Select,
+  Divider,
 } from '@mantine/core';
 import {
   IconFileText,
@@ -23,6 +25,7 @@ import {
   IconCheck,
   IconClock,
   IconX,
+  IconBrain,
 } from '@tabler/icons-react';
 import {
   useGenerateReport,
@@ -31,6 +34,7 @@ import {
   getReportStatusColor,
   formatReportStatus,
 } from '~/hooks/useReports';
+import { useAnalysisList } from '~/hooks/useLLMAnalysis';
 import { type ReportResponse } from '~/client/types.gen';
 import { useCustomToast } from '~/hooks/useCustomToast';
 
@@ -51,6 +55,7 @@ export function ReportGenerationPanel({
   const [selectedReport, setSelectedReport] = useState<ReportResponse | null>(
     null
   );
+  const [selectedAnalysisId, setSelectedAnalysisId] = useState<string>('');
 
   const generateReport = useGenerateReport(projectId);
   const {
@@ -58,21 +63,27 @@ export function ReportGenerationPanel({
     isLoading: isLoadingReports,
     refetch,
   } = useReports(projectId);
+  const { data: analysesData, isLoading: isLoadingAnalyses } =
+    useAnalysisList(projectId);
   const downloadReport = useDownloadReport(projectId, selectedReport?.id || '');
   const { showToast } = useCustomToast();
 
   const handleGenerateReport = async () => {
-    if (!analysisId || !runId) {
-      showToast(
-        'Analysis ID and Run ID are required to generate a report',
-        'error'
-      );
+    if (!runId) {
+      showToast('Run ID is required to generate a report', 'error');
+      return;
+    }
+
+    // Use selected analysis ID or current analysis ID
+    const targetAnalysisId = selectedAnalysisId || analysisId;
+    if (!targetAnalysisId) {
+      showToast('Please select an analysis to generate a report from', 'error');
       return;
     }
 
     try {
       await generateReport.mutateAsync({
-        analysis_id: analysisId,
+        llm_analysis_id: targetAnalysisId,
         run_id: runId,
       });
     } catch (error) {
@@ -144,14 +155,50 @@ export function ReportGenerationPanel({
           analysis completes.
         </Text>
 
-        {/* Auto-generation info */}
-        <Alert icon={<IconFileText size={16} />} color='blue' variant='light'>
-          <Text size='sm'>
-            <strong>Auto-Generation:</strong> PDF reports are automatically
-            created when LLM analysis completes. You can also manually generate
-            additional reports using the button below.
-          </Text>
-        </Alert>
+        {/* Analysis Selection for Manual Report Generation */}
+        {analysesData && analysesData.analyses.length > 0 && (
+          <>
+            <Divider />
+            <Stack gap='sm'>
+              <Group gap='sm'>
+                <IconBrain size={16} />
+                <Text size='sm' fw={500}>
+                  Manual Report Generation
+                </Text>
+              </Group>
+              <Text size='sm' c='dimmed'>
+                Generate a new PDF report from any stored analysis:
+              </Text>
+              <Group gap='sm' align='flex-end'>
+                <Select
+                  placeholder='Select an analysis...'
+                  data={analysesData.analyses.map((analysis) => ({
+                    value: analysis.id,
+                    label: `${analysis.analysis_id} (${analysis.status}) - ${new Date(analysis.created_at).toLocaleDateString()}`,
+                  }))}
+                  value={selectedAnalysisId}
+                  onChange={(value) => setSelectedAnalysisId(value || '')}
+                  style={{ flex: 1 }}
+                  disabled={disabled}
+                />
+                <Button
+                  onClick={handleGenerateReport}
+                  disabled={
+                    disabled ||
+                    generateReport.isPending ||
+                    !selectedAnalysisId ||
+                    !runId
+                  }
+                  loading={generateReport.isPending}
+                  leftSection={<IconFileText size={16} />}
+                  size='sm'
+                >
+                  Generate Report
+                </Button>
+              </Group>
+            </Stack>
+          </>
+        )}
 
         {!analysisId || !runId ? (
           <Alert icon={<IconAlertCircle size={16} />} color='yellow'>
@@ -212,7 +259,7 @@ export function ReportGenerationPanel({
                     </Table.Td>
                     <Table.Td>
                       <Text size='sm' c='dimmed' ff='monospace'>
-                        {report.analysis_id.slice(0, 8)}...
+                        {report.llm_analysis_id?.slice(0, 8)}...
                       </Text>
                     </Table.Td>
                     <Table.Td>
@@ -272,7 +319,7 @@ export function ReportGenerationPanel({
           <Stack gap='md'>
             <Text>
               Download the PDF report for analysis ID:{' '}
-              {selectedReport.analysis_id}
+              {selectedReport.llm_analysis_id}
             </Text>
             <Group justify='flex-end'>
               <Button

@@ -19,7 +19,9 @@ from src.common.features.report.crud import (
     create_report,
     get_report,
     list_reports_by_project,
-    get_report_by_analysis_id,
+    get_reports_by_analysis,
+    delete_failed_reports_for_analysis,
+    delete_all_reports_for_analysis,
 )
 from src.common.features.storage import generate_presigned_url, parse_s3_uri
 from src.worker.celery_app.tasks import generate_pdf_report_task
@@ -32,7 +34,7 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 class GenerateReportRequest(BaseModel):
     """Request model for generating a PDF report."""
     
-    analysis_id: str
+    llm_analysis_id: str
     run_id: str
 
 
@@ -50,7 +52,7 @@ class ReportResponse(BaseModel):
     id: str
     project_id: str
     run_id: str
-    analysis_id: str
+    llm_analysis_id: str | None
     status: str
     pdf_uri: str | None
     meta: dict
@@ -78,13 +80,15 @@ def generate_report(
     This endpoint:
     1. Validates project ownership
     2. Validates the processing run and analysis
-    3. Creates a report record
-    4. Triggers a Celery task for PDF generation
-    5. Returns the report ID
+    3. Deletes any existing reports for this analysis
+    4. Creates a new report record
+    5. Triggers a Celery task for PDF generation
+    6. Returns the report ID
     """
     try:
         project_uuid = uuid.UUID(project_id)
         run_uuid = uuid.UUID(request.run_id)
+        llm_analysis_uuid = uuid.UUID(request.llm_analysis_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid UUID format: {e}")
 
@@ -116,20 +120,37 @@ def generate_report(
                 detail="Processing run must be completed before generating reports",
             )
 
-        # Check if report already exists for this analysis
-        existing_report = get_report_by_analysis_id(session, request.analysis_id)
-        if existing_report:
+        # Validate LLM analysis exists and belongs to project
+        from src.common.features.llm_analysis.crud import get_analysis_by_id
+        
+        analysis = get_analysis_by_id(db=session, id=llm_analysis_uuid)
+        if not analysis:
+            raise HTTPException(status_code=404, detail="LLM analysis not found")
+
+        if analysis.project_id != project_uuid:
             raise HTTPException(
-                status_code=400,
-                detail=f"Report already exists for analysis {request.analysis_id}",
+                status_code=400, detail="LLM analysis does not belong to this project"
             )
+
+        if not analysis.result_data:
+            raise HTTPException(
+                status_code=400, detail="LLM analysis has no result data"
+            )
+
+        # Check if report already exists for this analysis
+        existing_reports = get_reports_by_analysis(session, llm_analysis_uuid)
+        
+        # Delete all existing reports for this analysis to allow recreation
+        deleted_reports_count = delete_all_reports_for_analysis(session, llm_analysis_uuid)
+        if deleted_reports_count > 0:
+            logger.info(f"Deleted {deleted_reports_count} existing report(s) for analysis {request.llm_analysis_id} to allow recreation")
 
         # Create report record
         report = create_report(
             db=session,
             project_id=project_uuid,
             run_id=run_uuid,
-            analysis_id=request.analysis_id,
+            llm_analysis_id=llm_analysis_uuid,
             meta={
                 "requested_by": str(current_user.id),
                 "project_title": project.title,
@@ -142,7 +163,7 @@ def generate_report(
             report_id=str(report.id),
             project_id=project_id,
             run_id=request.run_id,
-            analysis_id=request.analysis_id,
+            llm_analysis_id=request.llm_analysis_id,
         )
 
         logger.info(
@@ -210,7 +231,7 @@ def list_reports(
                     id=str(report.id),
                     project_id=str(report.project_id),
                     run_id=str(report.run_id) if report.run_id else "",
-                    analysis_id=report.analysis_id,
+                    llm_analysis_id=str(report.llm_analysis_id) if report.llm_analysis_id else None,
                     status=report.status,
                     pdf_uri=pdf_url,
                     meta=report.meta,
@@ -278,7 +299,7 @@ def get_report_details(
             id=str(report.id),
             project_id=str(report.project_id),
             run_id=str(report.run_id) if report.run_id else "",
-            analysis_id=report.analysis_id,
+            llm_analysis_id=str(report.llm_analysis_id) if report.llm_analysis_id else None,
             status=report.status,
             pdf_uri=pdf_url,
             meta=report.meta,
