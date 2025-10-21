@@ -1,4 +1,5 @@
 import { Text } from '@mantine/core';
+import { Fragment, ReactNode } from 'react';
 
 interface MarkdownRendererProps {
   content: string;
@@ -9,6 +10,33 @@ export const MarkdownRenderer = ({
   content,
   size = 'sm',
 }: MarkdownRendererProps) => {
+  const renderInlineMarkdown = (
+    text: string,
+    keyPrefix: string,
+  ): ReactNode => {
+    if (!text.includes('**')) {
+      return text;
+    }
+
+    const segments = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+
+    return segments.map((segment, segmentIndex) => {
+      if (segment.startsWith('**') && segment.endsWith('**') && segment.length > 4) {
+        return (
+          <strong key={`${keyPrefix}-bold-${segmentIndex}`}>
+            {segment.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      return (
+        <Fragment key={`${keyPrefix}-text-${segmentIndex}`}>
+          {segment}
+        </Fragment>
+      );
+    });
+  };
+
   // Simple markdown-like rendering for basic formatting
   const renderMarkdown = (text: string) => {
     // Split by lines and process each line
@@ -18,30 +46,21 @@ export const MarkdownRenderer = ({
       if (line.startsWith('## ')) {
         return (
           <Text key={index} fw={600} size='lg' mt='md' mb='sm'>
-            {line.replace('## ', '')}
+            {renderInlineMarkdown(line.replace('## ', ''), `h2-${index}`)}
           </Text>
         );
       }
       if (line.startsWith('### ')) {
         return (
           <Text key={index} fw={600} size='md' mt='sm' mb='xs'>
-            {line.replace('### ', '')}
+            {renderInlineMarkdown(line.replace('### ', ''), `h3-${index}`)}
           </Text>
         );
       }
       if (line.startsWith('# ')) {
         return (
           <Text key={index} fw={700} size='xl' mt='lg' mb='md'>
-            {line.replace('# ', '')}
-          </Text>
-        );
-      }
-
-      // Bold text
-      if (line.startsWith('**') && line.endsWith('**')) {
-        return (
-          <Text key={index} fw={600} size={size}>
-            {line.replace(/\*\*/g, '')}
+            {renderInlineMarkdown(line.replace('# ', ''), `h1-${index}`)}
           </Text>
         );
       }
@@ -50,7 +69,7 @@ export const MarkdownRenderer = ({
       if (line.startsWith('- ') || line.startsWith('* ')) {
         return (
           <Text key={index} size={size} style={{ marginLeft: '16px' }}>
-            • {line.replace(/^[-*] /, '')}
+            • {renderInlineMarkdown(line.replace(/^[-*] /, ''), `list-${index}`)}
           </Text>
         );
       }
@@ -59,7 +78,7 @@ export const MarkdownRenderer = ({
       if (/^\d+\. /.test(line)) {
         return (
           <Text key={index} size={size} style={{ marginLeft: '16px' }}>
-            {line}
+            {renderInlineMarkdown(line, `ordered-${index}`)}
           </Text>
         );
       }
@@ -72,7 +91,7 @@ export const MarkdownRenderer = ({
       // Regular text
       return (
         <Text key={index} size={size} style={{ marginBottom: '4px' }}>
-          {line}
+          {renderInlineMarkdown(line, `text-${index}`)}
         </Text>
       );
     });
