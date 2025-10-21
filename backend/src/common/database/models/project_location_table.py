@@ -35,4 +35,4 @@ class ProjectLocation(Base):
     )
 
     # Relationships
-    project = relationship("Project", back_populates="location")
+    project = relationship("Project", back_populates="location", passive_deletes=True)

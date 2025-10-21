@@ -6,6 +6,9 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from src.common.database.models import MediaAsset, Project, ProjectLocation
+from src.common.database.models.homography_session_table import HomographySession
+from src.common.database.models.homography_pair_table import HomographyPair
+from src.common.database.models.processing_run_table import ProcessingRun
 from src.common.features.project.schemas import (
     ProjectCreate,
     ProjectLocationCreate,
@@ -61,14 +64,32 @@ def update_project(
 
 
 def delete_project(session: Session, project_id: uuid.UUID, user_id: uuid.UUID) -> bool:
-    """Delete a project."""
-    db_project = get_project(session, project_id, user_id)
+    """Delete a project and all related data."""
+    db_project = get_project_with_relations(session, project_id, user_id)
     if not db_project:
         return False
     
-    session.delete(db_project)
-    session.commit()
-    return True
+    # Use raw SQL to delete the project directly, letting the database handle CASCADE deletes
+    # This bypasses SQLAlchemy's relationship management that causes primary key constraint issues
+    from sqlalchemy import text
+    
+    try:
+        # Delete the project using raw SQL - this will trigger CASCADE deletes
+        # for all related tables including project_location
+        result = session.execute(
+            text("DELETE FROM project WHERE id = :project_id AND user_id = :user_id"),
+            {"project_id": str(project_id), "user_id": str(user_id)}
+        )
+        
+        if result.rowcount == 0:
+            return False
+        
+        session.commit()
+        return True
+        
+    except Exception as e:
+        session.rollback()
+        raise e
 
 
 def create_media_asset(
@@ -131,6 +152,8 @@ def get_project_with_relations(session: Session, project_id: uuid.UUID, user_id:
         joinedload(Project.media_assets),
         joinedload(Project.homography_session),
         joinedload(Project.processing_runs),
+        joinedload(Project.reports),
+        joinedload(Project.llm_analyses),
     ).filter(
         and_(Project.id == project_id, Project.user_id == user_id)
     ).first()

@@ -202,21 +202,6 @@ export const LLMAnalysisPanel = ({
           </Group>
         )}
 
-        {/* PDF Generation Notification */}
-        {state.currentPhase === 'complete' && (
-          <Alert
-            color='blue'
-            icon={<IconFileText size={16} />}
-            title='PDF Report Generation Started'
-          >
-            <Text size='sm'>
-              Analysis complete! PDF report generation has been automatically
-              triggered. Check the PDF Reports section below to monitor progress
-              and download your report.
-            </Text>
-          </Alert>
-        )}
-
         {/* Collision Detection Result */}
         {state.collisionResult && (
           <Alert
