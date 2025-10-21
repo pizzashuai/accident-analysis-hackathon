@@ -301,7 +301,7 @@ export const VideoMapAnimation = ({
           mapId='video-map-animation'
           style={{ width: '100%', height: '100%' }}
           gestureHandling={lockView ? 'none' : 'auto'}
-          disableDefaultUI={true}
+          disableDefaultUI={false}
         >
           {markers}
         </Map>

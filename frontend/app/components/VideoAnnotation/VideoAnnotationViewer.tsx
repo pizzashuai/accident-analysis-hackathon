@@ -1061,7 +1061,7 @@ export const VideoAnnotationViewer = ({
             height={400}
             center={initialMapConfig.center}
             zoom={initialMapConfig.zoom}
-            lockView={true}
+            lockView={false}
           />
 
           {/* Labels and Tracks Display */}
