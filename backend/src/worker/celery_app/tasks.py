@@ -19,7 +19,6 @@ from src.common.features.postprocess.llm_agent import (
     LLMAccidentAnalysisAgent,
     LLMAgentConfig,
 )
-from src.common.features.process_video import VideoProcessor
 from src.common.features.processing.crud import (
     bulk_insert_detections,
     create_artifact,
@@ -38,6 +37,24 @@ logger = logging.getLogger(__name__)
 
 # Initialize Celery app
 from src.worker.celery_app.app import app as celery_app
+
+
+def create_video_processor():
+    """Lazy import helper to avoid heavy ML dependencies during API startup."""
+    from src.common.features.process_video import VideoProcessor
+
+    return VideoProcessor(
+        model_path="yolov8s.pt",
+        conf_threshold=0.2,
+        iou_threshold=0.3,
+        classes=[2, 3, 5, 7, 9],  # Vehicle classes
+        trail_length=10,
+        bbox_smoothing_method="kalman",
+        bbox_smoothing_window=5,
+        speed_smoothing_method="moving_average",
+        speed_smoothing_window=5,
+        tracking_point="bottom_center",
+    )
 
 
 def convert_to_json_serializable(obj):
@@ -299,19 +316,7 @@ def process_video_task(self, project_id: str, run_id: str):
                 raise ValueError("Homography model not found")
 
             # Initialize video processor with optimal settings
-            processor = VideoProcessor(
-                model_path="yolov8s.pt",
-                conf_threshold=0.2,
-                iou_threshold=0.3,
-                classes=[2, 3, 5, 7, 9],  # Vehicle classes
-                trail_length=10,
-                # Optimal smoothing settings
-                bbox_smoothing_method="kalman",
-                bbox_smoothing_window=5,
-                speed_smoothing_method="moving_average",
-                speed_smoothing_window=5,
-                tracking_point="bottom_center",
-            )
+            processor = create_video_processor()
 
             # Create homography data (Python objects, not files)
             homography_data = processor.create_homography_data(
@@ -615,19 +620,7 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
                 raise ValueError("Homography model not found")
 
             # Initialize video processor with optimal settings
-            processor = VideoProcessor(
-                model_path="yolov8s.pt",
-                conf_threshold=0.2,
-                iou_threshold=0.3,
-                classes=[2, 3, 5, 7, 9],  # Vehicle classes
-                trail_length=10,
-                # Optimal smoothing settings
-                bbox_smoothing_method="kalman",
-                bbox_smoothing_window=5,
-                speed_smoothing_method="moving_average",
-                speed_smoothing_window=5,
-                tracking_point="bottom_center",
-            )
+            processor = create_video_processor()
 
             # Create homography data
             homography_data = processor.create_homography_data(

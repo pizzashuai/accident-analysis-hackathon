@@ -1,34 +1,53 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# Install system dependencies and uv
-RUN apt-get update && apt-get install -y \
-    gcc \
-    curl \
-    libgl1-mesa-glx \
+# Install build-time dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && /root/.local/bin/uv --version
+    && rm -rf /var/lib/apt/lists/*
 
-# Add uv to PATH
-ENV PATH="/root/.local/bin:/root/.cargo/bin:$PATH"
+# Install uv via pip (avoids keeping curl in the final image)
+RUN python -m pip install --no-cache-dir --upgrade pip uv
 
-# Copy dependency files first for better caching
+# Copy project files needed for dependency installation
 COPY pyproject.toml uv.lock ./
-
-# Install dependencies from pyproject.toml
-RUN /root/.local/bin/uv pip install --system --no-cache -e .
-
-# Copy application source
 COPY src /app/src
 
-# Set Python path
-ENV PYTHONPATH=/app/src
+# Install dependencies with worker extras
+RUN uv pip install --system --no-cache -e .[worker]
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app/src
+
+WORKDIR /app
+
+# Install runtime system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed Python packages and application source
+COPY --from=builder /usr/local /usr/local
+COPY --from=builder /app/src /app/src
+COPY yolov8s.pt /app/yolov8s.pt
 
 # Run the worker
 CMD ["celery", "-A", "src.worker.celery_app.app", "worker", "-l", "info"]

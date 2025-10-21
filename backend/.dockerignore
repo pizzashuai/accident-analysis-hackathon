@@ -6,3 +6,15 @@ app.egg-info
 .coverage
 htmlcov
 .venv
+
+# Local artifacts
+uploads
+screenshots
+test_screenshots
+.uv-cache
+
+# Exclude heavy sample assets not needed in images
+src/common/features/process_video/*.mp4
+src/common/features/process_video/speed_test_output
+src/common/features/process_video/detections.jsonl
+src/common/features/process_video/yolo*.pt
