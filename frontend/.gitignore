@@ -31,3 +31,5 @@ openapi.json
 /.react-router/
 /.pnpm-store/
 /build/
+
+.env*

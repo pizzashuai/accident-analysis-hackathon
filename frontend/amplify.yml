@@ -1,0 +1,29 @@
+version: 1
+applications:
+  - frontend:
+      phases:
+        preBuild:
+          commands:
+            - corepack enable
+            - corepack prepare pnpm@10.6.5 --activate
+            - pnpm install --frozen-lockfile
+        build:
+          commands:
+            - 'pnpm run build'
+      artifacts:
+        baseDirectory: build/client
+        files:
+          - '**/*'
+        customHeaders:
+          - pattern: 'assets/*.js'
+            headers:
+              - key: 'Content-Type'
+                value: 'application/javascript'
+          - pattern: 'assets/*.css'
+            headers:
+              - key: 'Content-Type'
+                value: 'text/css'
+      cache:
+        paths:
+          - 'node_modules/**/*'
+      appRoot: .
