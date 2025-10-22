@@ -1,5 +1,6 @@
 import {
   Container,
+  Flex,
   Image,
   TextInput,
   Text,
@@ -64,13 +65,17 @@ export default function Login() {
         style={{ width: '100%' }}
       >
         <Stack gap='md'>
-          <Image
-            src='https://placehold.co/300x100?text=FastAPI'
-            alt='FastAPI logo'
-            height={80}
-            fit='contain'
-            mb='md'
-          />
+          <Flex align='center' justify='center' gap='sm' mb='md'>
+            <Image
+              src='/favicon.png'
+              alt='Accident Analysis logo'
+              height={80}
+              fit='contain'
+            />
+            <Text size='xl' fw={700}>
+              CCTV to Timeline
+            </Text>
+          </Flex>
 
           <TextInput
             label='Email'
