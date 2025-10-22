@@ -50,4 +50,4 @@ COPY --from=builder /app/src /app/src
 COPY yolov8s.pt /app/yolov8s.pt
 
 # Run the worker
-CMD ["celery", "-A", "src.worker.celery_app.app", "worker", "-l", "info"]
+CMD ["python", "-m", "src.worker.entrypoint"]
