@@ -249,6 +249,18 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
     },
   ];
 
+  const handleStepClick = (index: number) => {
+    if (index === 1 && !isVideoReviewAvailable()) {
+      showToast(
+        'Video review becomes available after the first processing run completes.',
+        'info'
+      );
+      return;
+    }
+
+    setActiveStep(index);
+  };
+
   return (
     <Container size='xl' py='xl'>
       <Stack gap='xl'>
@@ -300,8 +312,8 @@ export default function ProjectDetail({ params }: Route.ComponentProps) {
           <Stack gap='md'>
             <Stepper
               active={activeStep}
-              onStepClick={setActiveStep}
-              allowNextStepsSelect={false}
+              onStepClick={handleStepClick}
+              allowNextStepsSelect
               size='lg'
             >
               {steps.map((step, index) => (
