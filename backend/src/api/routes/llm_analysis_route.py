@@ -28,6 +28,7 @@ from src.common.features.storage import (
     generate_presigned_url,
     parse_s3_uri,
 )
+from src.common.redis_tls import redis_connection_config
 from src.worker.celery_app.tasks import analyze_accident_llm_task
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,12 @@ class StartAnalysisResponse(BaseModel):
 
 def get_redis_client():
     """Get Redis client for event streaming."""
-    redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
-    return redis.from_url(redis_url, decode_responses=True)
+    raw_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
+    redis_url, ssl_kwargs = redis_connection_config(raw_url)
+    client_kwargs: dict[str, object] = {"decode_responses": True}
+    if ssl_kwargs:
+        client_kwargs.update(ssl_kwargs)
+    return redis.from_url(redis_url, **client_kwargs)
 
 
 @router.post("/projects/{project_id}/start", response_model=StartAnalysisResponse)
@@ -208,6 +213,7 @@ def start_llm_analysis(
                 project_id=project_id,
                 run_id=request.run_id,
                 detections_file_path=str(temp_file_path),
+                detections_file_uri=filtered_artifact.uri,
             )
 
             logger.info(

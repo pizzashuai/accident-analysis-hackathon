@@ -30,8 +30,10 @@ dependencies = [
 
 [project.optional-dependencies]
 worker = [
+    "torch==2.6.0",
+    "torchvision==0.21.0",
     "supervision>=0.26.1",
-    "ultralytics>=8.3.218",
+    "ultralytics==8.3.218",
 ]
 
 [tool.uv]
@@ -43,6 +45,14 @@ dev-dependencies = [
     "types-passlib<2.0.0.0,>=1.7.7.20240106",
     "coverage<8.0.0,>=7.4.3",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [tool.mypy]
 strict = false

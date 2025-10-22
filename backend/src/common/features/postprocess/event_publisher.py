@@ -14,6 +14,7 @@ from typing import Any
 import redis
 
 from src.common.config import settings
+from src.common.redis_tls import redis_connection_config
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,15 @@ class LLMEventPublisher:
         Args:
             redis_url: Redis connection URL. If None, uses default from settings.
         """
-        self.redis_url = redis_url or getattr(
+        raw_url = redis_url or getattr(
             settings, "REDIS_URL", "redis://localhost:6379/0"
         )
-        self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
+        self.redis_url, ssl_kwargs = redis_connection_config(raw_url)
+        client_kwargs: dict[str, object] = {"decode_responses": True}
+        if ssl_kwargs:
+            client_kwargs.update(ssl_kwargs)
+
+        self.redis_client = redis.from_url(self.redis_url, **client_kwargs)
 
         # Test connection
         try:

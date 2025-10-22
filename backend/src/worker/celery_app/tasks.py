@@ -4,6 +4,7 @@ import tempfile
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -27,6 +28,7 @@ from src.common.features.processing.crud import (
 )
 from src.common.features.project import create_media_asset
 from src.common.features.storage import (
+    download_file_from_s3,
     extract_first_frame,
     generate_presigned_url,
     parse_s3_uri,
@@ -236,6 +238,8 @@ def process_video_task(self, project_id: str, run_id: str):
     except ValueError as e:
         logger.error(f"Invalid run_id format: {run_id}. Error: {e}")
         raise ValueError(f"Invalid run_id format: {run_id}")
+
+    temp_download_path: Optional[Path] = None
 
     try:
         with Session(engine) as session:
@@ -807,7 +811,12 @@ def generate_annotated_video_task(self, project_id: str, run_id: str):
 
 @celery_app.task(bind=True)
 def analyze_accident_llm_task(
-    self, analysis_id: str, project_id: str, run_id: str, detections_file_path: str
+    self,
+    analysis_id: str,
+    project_id: str,
+    run_id: str,
+    detections_file_path: Optional[str] = None,
+    detections_file_uri: Optional[str] = None,
 ):
     """
     Analyze accident data using LLM agent with real-time event publishing.
@@ -816,7 +825,8 @@ def analyze_accident_llm_task(
         analysis_id: Unique identifier for this analysis session
         project_id: Project UUID string
         run_id: Processing run UUID string
-        detections_file_path: Path to the filtered JSONL detections file
+        detections_file_path: Optional local path to the filtered JSONL detections file
+        detections_file_uri: Optional S3 URI or URL for the filtered detections file
     """
     try:
         project_uuid = uuid.UUID(project_id)
@@ -844,38 +854,110 @@ def analyze_accident_llm_task(
             if not run:
                 raise ValueError(f"Processing run {run_id} not found")
 
-            # Extract track IDs from the filtered JSONL file metadata
-            # The file should have been filtered by track IDs already
-            track_ids = []
-            try:
-                with open(detections_file_path) as f:
-                    for line in f:
-                        if line.strip():
-                            import json
+            # Resolve detections file path/URI so the worker can access the data
+            resolved_detections_path: Optional[Path] = None
+            if detections_file_path:
+                candidate_path = Path(detections_file_path)
+                if candidate_path.exists():
+                    resolved_detections_path = candidate_path
+                else:
+                    logger.warning(
+                        f"Detections file path {candidate_path} not found; attempting remote download."
+                    )
 
-                            detection = json.loads(line.strip())
-                            track_id = detection.get("track_id")
-                            if track_id is not None and track_id not in track_ids:
-                                track_ids.append(track_id)
-            except Exception as e:
-                logger.warning(f"Could not extract track IDs from file: {e}")
-                # Fallback: use common track IDs
-                track_ids = [7, 14]  # Default track IDs
+            if resolved_detections_path is None:
+                download_candidates: list[str] = []
+                if detections_file_uri:
+                    download_candidates.append(detections_file_uri)
+                if detections_file_path:
+                    download_candidates.append(detections_file_path)
 
-            if not track_ids:
-                raise ValueError("No track IDs found in detections file")
+                for candidate in download_candidates:
+                    if not isinstance(candidate, str):
+                        continue
+                    try:
+                        if candidate.startswith("s3://"):
+                            bucket, key = parse_s3_uri(candidate)
+                            with tempfile.NamedTemporaryFile(
+                                suffix=".jsonl", delete=False
+                            ) as temp_file:
+                                temp_download_path = Path(temp_file.name)
+                            download_file_from_s3(bucket, key, str(temp_download_path))
+                            resolved_detections_path = temp_download_path
+                            logger.info(
+                                f"Downloaded detections file for analysis {analysis_id} from {candidate}"
+                            )
+                            break
+                        elif candidate.startswith(("http://", "https://")):
+                            response = requests.get(candidate)
+                            response.raise_for_status()
+                            with tempfile.NamedTemporaryFile(
+                                mode="w", suffix=".jsonl", delete=False
+                            ) as temp_file:
+                                temp_file.write(response.text)
+                                temp_download_path = Path(temp_file.name)
+                            resolved_detections_path = temp_download_path
+                            logger.info(
+                                f"Downloaded detections file for analysis {analysis_id} from URL source."
+                            )
+                            break
+                    except Exception as download_error:
+                        logger.warning(
+                            f"Failed to download detections file from {candidate}: {download_error}"
+                        )
+                        if temp_download_path:
+                            temp_download_path.unlink(missing_ok=True)
+                            temp_download_path = None
 
-            logger.info(f"Analyzing tracks: {track_ids}")
+            if resolved_detections_path is None:
+                raise FileNotFoundError(
+                    "Detections file is not accessible; provide a valid local path, S3 URI, or URL."
+                )
 
             # Get existing analysis record from database
-            from src.common.features.llm_analysis.crud import get_analysis, update_analysis_status, update_analysis_result, update_analysis_error
-            
+            from src.common.features.llm_analysis.crud import (
+                get_analysis,
+                update_analysis_result,
+                update_analysis_status,
+                update_analysis_error,
+            )
+
             # Get existing analysis record (created by API route)
             analysis_record = get_analysis(session, analysis_id)
             if not analysis_record:
-                raise ValueError(f"Analysis record {analysis_id} not found - it should have been created by the API route")
-            
-            logger.info(f"Found existing analysis record {analysis_record.id} for session {analysis_id}")
+                raise ValueError(
+                    f"Analysis record {analysis_id} not found - it should have been created by the API route"
+                )
+
+            logger.info(
+                f"Found existing analysis record {analysis_record.id} for session {analysis_id}"
+            )
+
+            # Prefer track IDs stored with the analysis record, fallback to parsing the file
+            track_ids = analysis_record.track_ids or []
+            if not track_ids:
+                try:
+                    with open(resolved_detections_path) as f:
+                        for line in f:
+                            if line.strip():
+                                detection = json.loads(line.strip())
+                                track_id = detection.get("track_id")
+                                if (
+                                    track_id is not None
+                                    and track_id not in track_ids
+                                ):
+                                    track_ids.append(track_id)
+                except Exception as e:
+                    logger.warning(f"Could not extract track IDs from file: {e}")
+
+            if not track_ids:
+                # Fallback: use common track IDs
+                track_ids = [7, 14]
+                logger.warning(
+                    "No track IDs provided or found in detections file; using default track IDs [7, 14]."
+                )
+
+            logger.info(f"Analyzing tracks: {track_ids}")
 
             # Update status to analyzing
             update_analysis_status(session, analysis_id, "analyzing")
@@ -894,7 +976,7 @@ def analyze_accident_llm_task(
                     distance_threshold_m=5.0,
                     persistence_frames=3,
                     padding_frames=10,
-                    detections_file=detections_file_path,
+                    detections_file=str(resolved_detections_path),
                     aws_region=settings.AWS_REGION,
                     bedrock_models=[
                         "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -1048,6 +1130,10 @@ def analyze_accident_llm_task(
 
         # Re-raise the exception to mark task as failed
         raise
+
+    finally:
+        if temp_download_path:
+            temp_download_path.unlink(missing_ok=True)
 
 
 @celery_app.task(bind=True)
