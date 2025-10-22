@@ -7,14 +7,31 @@ screenshots and map overlays.
 
 import base64
 import logging
+import re
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 
-from weasyprint import CSS, HTML
+if TYPE_CHECKING:  # pragma: no cover - import only for typing
+    from reportlab.lib.styles import StyleSheet1
+    from reportlab.platypus import Image as RLImage
 
 logger = logging.getLogger(__name__)
+
+try:  # pragma: no cover - import failure path exercised in production
+    from weasyprint import CSS, HTML
+
+    _WEASYPRINT_AVAILABLE = True
+    _WEASYPRINT_IMPORT_ERROR: Optional[Exception] = None
+except Exception as exc:  # pragma: no cover - import failure path
+    CSS = HTML = None  # type: ignore[assignment]
+    _WEASYPRINT_AVAILABLE = False
+    _WEASYPRINT_IMPORT_ERROR = exc
+    logger.warning(
+        "WeasyPrint is unavailable, PDF generation will fall back to ReportLab: %s",
+        exc,
+    )
 
 
 def generate_pdf_report(
@@ -44,47 +61,76 @@ def generate_pdf_report(
         - output_path: str
         - error: str (if failed)
     """
+    # Create temporary file if no output path provided
+    if not output_path:
+        temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        output_path = temp_file.name
+        temp_file.close()
+
+    output_path = Path(output_path)
+
+    # Generate a shared timestamp for PDF metadata
+    timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+
+    # Generate HTML content
+    html_content = _generate_html_content(
+        analysis_text=analysis_text,
+        project_title=project_title,
+        project_description=project_description,
+        video_screenshot_path=video_screenshot_path,
+        map_overlay_path=map_overlay_path,
+        metadata=metadata,
+        generated_timestamp=timestamp,
+    )
+
+    # Generate CSS styles
+    css_content = _generate_css_styles()
+
+    weasy_error: Optional[Exception] = None
+
+    if _WEASYPRINT_AVAILABLE and CSS and HTML:
+        try:
+            html_doc = HTML(string=html_content)
+            css_doc = CSS(string=css_content)
+            html_doc.write_pdf(str(output_path), stylesheets=[css_doc])
+            logger.info(f"Successfully generated PDF report: {output_path}")
+            return {"success": True, "output_path": str(output_path), "error": None}
+        except Exception as exc:  # pragma: no cover - runtime failure only in prod
+            weasy_error = exc
+            logger.warning(
+                "WeasyPrint PDF generation failed, attempting ReportLab fallback: %s",
+                exc,
+            )
+
+    # Fall back to ReportLab-based PDF generation
     try:
-        # Create temporary file if no output path provided
-        if not output_path:
-            temp_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-            output_path = temp_file.name
-            temp_file.close()
-
-        output_path = Path(output_path)
-
-        # Generate HTML content
-        html_content = _generate_html_content(
+        _generate_pdf_with_reportlab(
             analysis_text=analysis_text,
             project_title=project_title,
             project_description=project_description,
             video_screenshot_path=video_screenshot_path,
             map_overlay_path=map_overlay_path,
             metadata=metadata,
+            output_path=str(output_path),
+            timestamp=timestamp,
         )
-
-        # Generate CSS styles
-        css_content = _generate_css_styles()
-
-        # Create HTML document
-        html_doc = HTML(string=html_content)
-
-        # Create CSS document
-        css_doc = CSS(string=css_content)
-
-        # Generate PDF
-        html_doc.write_pdf(str(output_path), stylesheets=[css_doc])
-
-        logger.info(f"Successfully generated PDF report: {output_path}")
-
+        logger.info(
+            "Successfully generated PDF report with ReportLab fallback: %s",
+            output_path,
+        )
         return {"success": True, "output_path": str(output_path), "error": None}
-
-    except Exception as e:
-        logger.error(f"Failed to generate PDF report: {e}")
+    except Exception as fallback_error:
+        logger.error(f"Failed to generate PDF report: {fallback_error}")
+        combined_message = str(fallback_error)
+        if weasy_error or _WEASYPRINT_IMPORT_ERROR:
+            combined_message = (
+                f"Primary (WeasyPrint) error: {weasy_error or _WEASYPRINT_IMPORT_ERROR}; "
+                f"Fallback (ReportLab) error: {fallback_error}"
+            )
         return {
             "success": False,
             "output_path": str(output_path) if output_path else "",
-            "error": str(e),
+            "error": combined_message,
         }
 
 
@@ -95,6 +141,7 @@ def _generate_html_content(
     video_screenshot_path: str | None,
     map_overlay_path: str | None,
     metadata: dict[str, Any],
+    generated_timestamp: str,
 ) -> str:
     """Generate HTML content for the PDF report."""
 
@@ -119,9 +166,6 @@ def _generate_html_content(
     # Format analysis text (convert markdown-like formatting to HTML)
     formatted_analysis = _format_analysis_text(analysis_text)
 
-    # Generate timestamp
-    timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
-
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -136,7 +180,7 @@ def _generate_html_content(
             <h2>{project_title}</h2>
             {f'<p class="description">{project_description}</p>' if project_description else ""}
             <div class="metadata">
-                <p><strong>Generated:</strong> {timestamp}</p>
+                <p><strong>Generated:</strong> {generated_timestamp}</p>
                 {f"<p><strong>Analysis ID:</strong> {metadata.get('analysis_id', 'N/A')}</p>" if metadata.get("analysis_id") else ""}
                 {f"<p><strong>Track IDs:</strong> {', '.join(map(str, metadata.get('track_ids', [])))}</p>" if metadata.get("track_ids") else ""}
             </div>
@@ -415,6 +459,237 @@ def _generate_css_styles() -> str:
         margin: 0.25rem 0;
     }
     """
+
+
+def _generate_pdf_with_reportlab(
+    *,
+    analysis_text: str,
+    project_title: str,
+    project_description: Optional[str],
+    video_screenshot_path: Optional[str],
+    map_overlay_path: Optional[str],
+    metadata: dict[str, Any],
+    output_path: str,
+    timestamp: str,
+) -> None:
+    """Generate a PDF using ReportLab as a fallback when WeasyPrint is unavailable."""
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import inch
+        from reportlab.platypus import (
+            Image as RLImage,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+    except ImportError as exc:  # pragma: no cover - only triggers when dependency missing
+        raise RuntimeError(
+            "ReportLab is required for fallback PDF generation but is not installed."
+        ) from exc
+
+    doc = SimpleDocTemplate(
+        output_path,
+        pagesize=letter,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
+        leftMargin=0.75 * inch,
+        rightMargin=0.75 * inch,
+    )
+
+    styles = getSampleStyleSheet()
+    story: list[Any] = []
+
+    story.append(Paragraph("Accident Analysis Report", styles["Title"]))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(project_title, styles["Heading2"]))
+
+    if project_description:
+        story.append(Paragraph(project_description, styles["BodyText"]))
+
+    metadata_rows = _build_metadata_rows(metadata, timestamp)
+    if metadata_rows:
+        story.append(Spacer(1, 12))
+        meta_table = Table(
+            metadata_rows, hAlign="LEFT", colWidths=[1.8 * inch, 4.2 * inch]
+        )
+        meta_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 10),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [colors.white, colors.HexColor("#f8fafc")],
+                    ),
+                    ("BOX", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5f5")),
+                    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5f6")),
+                ]
+            )
+        )
+        story.append(meta_table)
+
+    story.append(Spacer(1, 18))
+    story.append(Paragraph("Analysis Results", styles["Heading2"]))
+
+    story.extend(_analysis_story_elements(analysis_text, styles))
+
+    story.extend(
+        _image_story_elements(
+            video_screenshot_path=video_screenshot_path,
+            map_overlay_path=map_overlay_path,
+            styles=styles,
+        )
+    )
+
+    story.append(Spacer(1, 24))
+    footer_style = ParagraphStyle(
+        "Footer",
+        parent=styles["BodyText"],
+        textColor=colors.HexColor("#475569"),
+        fontSize=9,
+        leading=12,
+    )
+    story.append(
+        Paragraph(
+            "Report generated by the Accident Analysis System. Review by qualified professionals is recommended.",
+            footer_style,
+        )
+    )
+
+    doc.build(story)
+
+
+def _build_metadata_rows(metadata: dict[str, Any], timestamp: str) -> list[list[str]]:
+    rows: list[list[str]] = [["<b>Field</b>", "<b>Value</b>"], ["Generated", timestamp]]
+
+    fields: list[tuple[str, str]] = [
+        ("analysis_id", "Analysis ID"),
+        ("project_id", "Project ID"),
+        ("run_id", "Run ID"),
+        ("track_ids", "Track IDs"),
+        ("collision_frame", "Collision Frame"),
+        ("collision_timestamp", "Collision Timestamp"),
+        ("collision_point", "Collision Point"),
+        ("generated_at", "Generated At"),
+    ]
+
+    for key, label in fields:
+        if key not in metadata:
+            continue
+        value = metadata[key]
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            value = ", ".join(str(item) for item in value if item is not None)
+        rows.append([label, str(value)])
+
+    return rows
+
+
+def _analysis_story_elements(
+    analysis_text: str, styles: "StyleSheet1"
+) -> Iterable[Any]:
+    from reportlab.platypus import Paragraph, Spacer
+
+    elements: list[Any] = []
+    lines = analysis_text.splitlines()
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            elements.append(Spacer(1, 6))
+            continue
+
+        if line.startswith("###"):
+            text = line.lstrip("# ").strip()
+            elements.append(Paragraph(text, styles["Heading3"]))
+            continue
+        if line.startswith("##"):
+            text = line.lstrip("# ").strip()
+            elements.append(Paragraph(text, styles["Heading2"]))
+            continue
+        if line.startswith("#"):
+            text = line.lstrip("# ").strip()
+            elements.append(Paragraph(text, styles["Heading1"]))
+            continue
+
+        bullet_prefixes = ("- ", "* ", "• ")
+        if line.startswith(bullet_prefixes):
+            bullet_text = _convert_markdown_inline(line[2:].strip())
+            elements.append(Paragraph(f"&bull; {bullet_text}", styles["BodyText"]))
+            continue
+
+        formatted = _convert_markdown_inline(line)
+        elements.append(Paragraph(formatted, styles["BodyText"]))
+
+    elements.append(Spacer(1, 12))
+    return elements
+
+
+def _convert_markdown_inline(text: str) -> str:
+    """Convert simple markdown inline markers to HTML for ReportLab Paragraph."""
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"\*(.*?)\*", r"<i>\1</i>", text)
+    return text
+
+
+def _image_story_elements(
+    *,
+    video_screenshot_path: Optional[str],
+    map_overlay_path: Optional[str],
+    styles: "StyleSheet1",
+) -> Iterable[Any]:
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, Spacer
+
+    elements: list[Any] = []
+
+    for title, path in (
+        ("Video Screenshot", video_screenshot_path),
+        ("Map Overlay", map_overlay_path),
+    ):
+        if not path or not Path(path).exists():
+            continue
+        try:
+            image = _scaled_reportlab_image(path, max_width=6 * inch)
+        except Exception as exc:  # pragma: no cover - unlikely during tests
+            logger.warning("Failed to attach image '%s': %s", path, exc)
+            continue
+
+        elements.append(Paragraph(title, styles["Heading3"]))
+        elements.append(image)
+        elements.append(Spacer(1, 12))
+
+    return elements
+
+
+def _scaled_reportlab_image(path: str, max_width: float) -> "RLImage":
+    from reportlab.lib.utils import ImageReader
+    from reportlab.platypus import Image as RLImage
+
+    reader = ImageReader(path)
+    width, height = reader.getSize()
+    if width <= 0 or height <= 0:
+        raise ValueError("Image has invalid dimensions")
+
+    scale = min(1.0, max_width / float(width))
+    scaled_width = width * scale
+    scaled_height = height * scale
+
+    return RLImage(path, width=scaled_width, height=scaled_height)
 
 
 def main():

@@ -26,6 +26,7 @@ dependencies = [
     "opencv-python>=4.10.0",
     "weasyprint>=61.0",
     "pillow>=10.0",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -47,12 +48,19 @@ dev-dependencies = [
 ]
 
 [[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+priority = "primary"
+
+[[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+priority = "supplemental"
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
+markupsafe = { index = "pypi" }
 
 [tool.mypy]
 strict = false
