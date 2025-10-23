@@ -2,7 +2,6 @@ import {
   Box,
   Button,
   Container,
-  Flex,
   Group,
   Text,
   TextInput,
@@ -27,6 +26,7 @@ const UserInformation = () => {
   const { showSuccessToast } = useCustomToast();
   const [editMode, setEditMode] = useState(false);
   const { user: currentUser } = useAuth();
+  const isDemoUser = currentUser?.email === 'demo@gmail.com';
   const {
     register,
     handleSubmit,
@@ -43,6 +43,7 @@ const UserInformation = () => {
   });
 
   const toggleEditMode = () => {
+    if (isDemoUser) return;
     setEditMode(!editMode);
   };
 
@@ -78,7 +79,7 @@ const UserInformation = () => {
         <TextInput
           label='Full name'
           {...register('full_name', { maxLength: 30 })}
-          disabled={!editMode}
+          disabled={!editMode || isDemoUser}
           mb='md'
         />
 
@@ -89,16 +90,25 @@ const UserInformation = () => {
             pattern: emailPattern,
           })}
           error={errors.email?.message}
-          disabled={!editMode}
+          disabled={!editMode || isDemoUser}
           mb='md'
         />
+
+        {isDemoUser && (
+          <Text c='dimmed' size='sm' mb='sm'>
+            Demo accounts cannot be edited.
+          </Text>
+        )}
 
         <Group mt='md'>
           <Button
             type={editMode ? 'submit' : 'button'}
             onClick={editMode ? undefined : toggleEditMode}
             loading={editMode ? isSubmitting : false}
-            disabled={editMode ? !isDirty || !getValues('email') : false}
+            disabled={
+              isDemoUser ||
+              (editMode ? !isDirty || !getValues('email') : false)
+            }
           >
             {editMode ? 'Save' : 'Edit'}
           </Button>

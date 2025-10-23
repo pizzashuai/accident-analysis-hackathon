@@ -43,7 +43,7 @@ export default function Login() {
   }, [navigate]);
 
   const onSubmit: SubmitHandler<AccessToken> = async (data) => {
-    if (isSubmitting) return;
+    if (isSubmitting || loginMutation.isPending) return;
 
     resetError();
 
@@ -53,6 +53,23 @@ export default function Login() {
       // error is handled by useAuth hook
     }
   };
+
+  const handleDemoLogin = async () => {
+    if (loginMutation.isPending) return;
+
+    resetError();
+
+    try {
+      await loginMutation.mutateAsync({
+        username: 'demo@gmail.com',
+        password: '123123123',
+      });
+    } catch {
+      // error is handled by useAuth hook
+    }
+  };
+
+  const isLoading = isSubmitting || loginMutation.isPending;
 
   return (
     <Container
@@ -103,8 +120,18 @@ export default function Login() {
             Forgot Password?
           </Anchor>
 
-          <Button type='submit' loading={isSubmitting} fullWidth>
+          <Button type='submit' loading={isLoading} fullWidth>
             Log In
+          </Button>
+
+          <Button
+            type='button'
+            variant='outline'
+            onClick={handleDemoLogin}
+            loading={isLoading}
+            fullWidth
+          >
+            Log In With Demo Account
           </Button>
 
           <Text ta='center' size='sm'>

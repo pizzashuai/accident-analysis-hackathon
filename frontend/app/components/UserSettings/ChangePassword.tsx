@@ -5,12 +5,14 @@ import {
   Stack,
   Title,
   PasswordInput,
+  Text,
 } from '@mantine/core';
 import { useMutation } from '@tanstack/react-query';
 import { type SubmitHandler, useForm } from 'react-hook-form';
 import { IconLock } from '@tabler/icons-react';
 
 import { type ApiError, type UpdatePassword, UsersService } from '~/client';
+import useAuth from '~/hooks/useAuth';
 import useCustomToast from '~/hooks/useCustomToast';
 import { confirmPasswordRules, handleError, passwordRules } from '~/utils';
 
@@ -20,6 +22,8 @@ interface UpdatePasswordForm extends UpdatePassword {
 
 const ChangePassword = () => {
   const { showSuccessToast } = useCustomToast();
+  const { user: currentUser } = useAuth();
+  const isDemoUser = currentUser?.email === 'demo@gmail.com';
   const {
     register,
     handleSubmit,
@@ -59,21 +63,34 @@ const ChangePassword = () => {
             leftSection={<IconLock size={16} />}
             {...register('current_password', passwordRules())}
             error={errors.current_password?.message}
+            disabled={isDemoUser}
           />
           <PasswordInput
             label='New Password'
             leftSection={<IconLock size={16} />}
             {...register('new_password', passwordRules())}
             error={errors.new_password?.message}
+            disabled={isDemoUser}
           />
           <PasswordInput
             label='Confirm Password'
             leftSection={<IconLock size={16} />}
             {...register('confirm_password', confirmPasswordRules(getValues))}
             error={errors.confirm_password?.message}
+            disabled={isDemoUser}
           />
         </Stack>
-        <Button type='submit' loading={isSubmitting} mt='md'>
+        {isDemoUser && (
+          <Text c='dimmed' size='sm' mt='sm'>
+            Demo accounts cannot change passwords.
+          </Text>
+        )}
+        <Button
+          type='submit'
+          loading={isSubmitting}
+          mt='md'
+          disabled={isDemoUser}
+        >
           Save
         </Button>
       </Box>
